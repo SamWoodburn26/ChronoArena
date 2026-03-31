@@ -1,0 +1,10 @@
+*.class
+
+# Common build output dirs
+bin/
+out/
+target/
+
+# macOS
+.DS_Store
+
