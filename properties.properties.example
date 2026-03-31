@@ -1,0 +1,11 @@
+# Example settings for ChronoArena UI demo
+#
+# Copy/rename to `properties.properties` to use.
+
+# Map size (pixels)
+map_width=900
+map_height=650
+
+# Round duration (seconds)
+round_duration_sec=180
+
