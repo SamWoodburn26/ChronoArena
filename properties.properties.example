@@ -9,3 +9,7 @@ map_height=650
 # Round duration (seconds)
 round_duration_sec=180
 
+# Client server connections
+TCP_port=1234
+serverIP=localhost
+UDP_port=1235
