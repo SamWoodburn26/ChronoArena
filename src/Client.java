@@ -1,77 +1,180 @@
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.FileInputStream;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
 import java.net.Socket;
+import java.util.Date;
 import java.util.Properties;
-import java.util.Scanner;
-import java.util.UUID;
+
+//help from Claude.ai
 
 public class Client {
     private Socket socket;
+    private DatagramSocket udpSocket;
     private DataInputStream dataInputStream;
     private DataOutputStream dataOutputStream;
-
     private String playerName;
+    private int playerId = -1;
 
-    public Client(Socket socket, String playerName) {
+    private InetAddress serverAddress;
+    private int udpPort;
+
+    // Sequence number for UDP packets (incremented per send)
+    private int udpSeqNum = 0;
+
+    public Client(Socket socket, DatagramSocket udpSocket, String playerName, InetAddress serverAddress, int udpPort) {
         try {
             this.socket = socket;
+            this.udpSocket = udpSocket;
             this.playerName = playerName;
+            this.serverAddress = serverAddress;
+            this.udpPort = udpPort;
             this.dataOutputStream = new DataOutputStream(socket.getOutputStream());
-            this.dataInputStream = new DataInputStream(socket.getInputStream()); 
+            this.dataInputStream = new DataInputStream(socket.getInputStream());
         } catch (IOException e) {
-            closeEverything(socket, dataInputStream, dataOutputStream);
+            logError("client init failed", e);
+            closeEverything();
         }
     }
 
-    public void sendMessage() {
-        //to do
-    }
-
-    public void listenForMessage() {
-        //to do
-    }
-
-    public void closeEverything(Socket socket, DataInputStream dataInputStream, DataOutputStream dataOutputStream) {
+    /**
+     * Sends JOIN message to server over TCP and waits for WELCOME|playerId response.
+     */
+    public void join() {
         try {
-            if (dataInputStream != null) {
-                dataInputStream.close();
-            }
-            if (dataOutputStream != null) {
-                dataOutputStream.close();
-            }
-            if (socket != null) {
-                socket.close();
+            dataOutputStream.writeUTF("JOIN|" + playerName);
+            dataOutputStream.flush();
+            String response = dataInputStream.readUTF();
+            if (response.startsWith("WELCOME|")) {
+                playerId = Integer.parseInt(response.substring(8).trim());
+                System.out.println("Connected to game as: " + playerName);
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            logError("join failed", e);
+            closeEverything();
         }
+    }
+
+    /**
+     * Listens for TCP messages from server (game state, gameover, kill switch).
+     * Runs on its own thread.
+     */
+    public void listenForMessage() {
+        new Thread(() -> {
+            while (socket != null && socket.isConnected()) {
+                try {
+                    String msg = dataInputStream.readUTF();
+                    handleServerMessage(msg);
+                } catch (IOException e) {
+                    logError("lost connection to server", e);
+                    closeEverything();
+                    break;
+                }
+            }
+        }).start();
+    }
+
+    private void handleServerMessage(String msg) {
+        if (msg.startsWith("STATE|")) {
+            // TODO (Person B): parse and update shared UI game state here
+            // GameStateParser.parse(msg) -> update local render model
+        } else if (msg.startsWith("GAMEOVER|")) {
+            String[] parts = msg.split("\\|");
+            if (parts.length >= 2) {
+                String[] info = parts[1].split(",");
+                if (info.length >= 3) {
+                    System.out.println("Game over! Winner: " + info[1] + " with " + info[2] + " points.");
+                }
+            }
+            closeEverything();
+        } else if (msg.startsWith("KILLED|")) {
+            System.out.println("You have been removed from the game.");
+            closeEverything();
+        } else if (msg.startsWith("SERVER:")) {
+            System.out.println(msg);
+        }
+    }
+
+    /**
+     * Sends a MOVE packet over UDP.
+     * Called by the UI/input layer when the player moves.
+     */
+    public void sendMove(double x, double y) {
+        String msg = "MOVE|" + (udpSeqNum++) + "|" + playerId + "|"
+                + String.format("%.1f", x) + "|" + String.format("%.1f", y);
+        sendUDP(msg);
+    }
+
+    /**
+     * Sends a FREEZE action packet over UDP.
+     */
+    public void sendFreeze(int targetId) {
+        String msg = "ACTION|" + (udpSeqNum++) + "|" + playerId + "|FREEZE|" + targetId;
+        sendUDP(msg);
+    }
+
+    private void sendUDP(String msg) {
+        try {
+            byte[] data = msg.getBytes();
+            DatagramPacket pkt = new DatagramPacket(data, data.length, serverAddress, udpPort);
+            udpSocket.send(pkt);
+        } catch (IOException e) {
+            logError("udp send failed", e);
+        }
+    }
+
+    public void closeEverything() {
+        try {
+            if (dataInputStream != null) dataInputStream.close();
+            if (dataOutputStream != null) dataOutputStream.close();
+            if (socket != null) socket.close();
+            if (udpSocket != null && !udpSocket.isClosed()) udpSocket.close();
+        } catch (IOException e) {
+            logError("error closing client", e);
+        }
+    }
+
+    public int getPlayerId() { return playerId; }
+
+    static void logError(String context, Exception e) {
+        try (FileWriter fw = new FileWriter("error.log", true)) {
+            fw.write("[" + new Date() + "] " + context + ": " + e.getMessage() + "\n");
+        } catch (IOException ignored) {}
     }
 
     public static void main(String[] args) throws IOException {
-        Scanner scanner = new Scanner(System.in);
-        String userName = UUID.randomUUID().toString();
-        Properties props = new Properties();
         String propertiesPath = "properties.properties";
         for (int i = 0; i < args.length - 1; i++) {
             if ("--properties".equals(args[i])) {
                 propertiesPath = args[i + 1];
             }
         }
+
+        Properties props = new Properties();
         try (FileInputStream fis = new FileInputStream(propertiesPath)) {
             props.load(fis);
-        } catch (IOException ignored) {
-            // Use defaults when the properties file is missing.
+        } catch (IOException e) {
+            logError("could not load properties", e);
+            // Proceed with defaults
         }
-        String serverIP = props.getProperty("serverIP", "localhost");
-        int TCP_port = Integer.parseInt(props.getProperty("TCP_port", "1234"));
-        int UDP_port = Integer.parseInt(props.getProperty("UDP_port", "1235"));
 
-        Socket socket = new Socket(serverIP, TCP_port);
-        Client client = new Client(socket, userName);
+        String serverIP   = props.getProperty("serverIP", "localhost");
+        int tcpPort       = Integer.parseInt(props.getProperty("TCP_port", "1234"));
+        int udpPort       = Integer.parseInt(props.getProperty("UDP_port", "1235"));
+        String playerName = props.getProperty("player_name", "Player" + (int)(Math.random() * 1000));
+
+        Socket tcpSocket      = new Socket(serverIP, tcpPort);
+        DatagramSocket udpSock = new DatagramSocket();
+        InetAddress serverAddr = InetAddress.getByName(serverIP);
+
+        Client client = new Client(tcpSocket, udpSock, playerName, serverAddr, udpPort);
+        client.join();
         client.listenForMessage();
-        client.sendMessage();
-        scanner.close();
+
+        // TODO (Person B): launch UI, wire sendMove/sendFreeze into input handlers
     }
 }
