@@ -31,8 +31,9 @@ public class Client {
     private volatile boolean closed = false;
 
     // Callbacks wired by ChronoArenaClientUI before listenForMessage() is called
-    private Consumer<String> stateCallback    = null;
-    private Consumer<String> gameOverCallback = null;
+    private Consumer<String> stateCallback       = null;
+    private Consumer<String> gameOverCallback    = null;
+    private Consumer<String> freezeEventCallback = null;
 
     public Client(Socket socket, DatagramSocket udpSocket, String playerName,
                   InetAddress serverAddress, int udpPort) {
@@ -62,6 +63,9 @@ public class Client {
 
     /** Called on the TCP listener thread when a GAMEOVER message arrives. */
     public void setGameOverCallback(Consumer<String> cb) { this.gameOverCallback = cb; }
+
+    /** Called when the server confirms a freeze ray fired by any player. */
+    public void setFreezeEventCallback(Consumer<String> cb) { this.freezeEventCallback = cb; }
 
     // -------------------------------------------------------------------------
     // Join handshake (TCP, synchronous)
@@ -133,6 +137,9 @@ public class Client {
                 }
             }
             // Stay connected — server may issue RESET to start a new round.
+
+        } else if (msg.startsWith("FREEZE_EVENT|")) {
+            if (freezeEventCallback != null) freezeEventCallback.accept(msg);
 
         } else if (msg.startsWith("KILLED|")) {
             System.out.println("[DEBUG] Received KILLED: " + msg);

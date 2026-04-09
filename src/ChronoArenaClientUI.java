@@ -85,7 +85,6 @@ public class ChronoArenaClientUI {
 
         client.setStateCallback(model::applyStateMessage);
         client.setGameOverCallback(model::applyGameOverMessage);
-        client.listenForMessage();
 
         // ---- Open game window on the EDT ----
         final Client     finalClient = client;
@@ -103,6 +102,10 @@ public class ChronoArenaClientUI {
 
             NetworkGamePanel panel = new NetworkGamePanel(model, finalClient, myPlayerId);
             panel.setPreferredSize(new Dimension(mapWidth, mapHeight));
+
+            // Wire freeze-ray visual — must be done after panel is created
+            finalClient.setFreezeEventCallback(panel::onFreezeEvent);
+            finalClient.listenForMessage();
 
             frame.setContentPane(panel);
             frame.pack();

@@ -54,6 +54,9 @@ public class GameState {
     // UDP action queue — drained each tick by the game loop
     public final ConcurrentLinkedQueue<String> actionQueue = new ConcurrentLinkedQueue<>();
 
+    // Events to broadcast to all clients after each tick (e.g. FREEZE_EVENT)
+    public final ConcurrentLinkedQueue<String> pendingBroadcasts = new ConcurrentLinkedQueue<>();
+
     private double  timeLeftSec = 0;
     private boolean gameOver    = false;
     private int     tickCount   = 0;
@@ -241,6 +244,9 @@ public class GameState {
         // Apply freeze
         target.frozenUntilSec          = now + FREEZE_DURATION;
         target.score                   = Math.max(0, target.score - FREEZE_PENALTY);
+
+        // Notify all clients so they can render the beam
+        pendingBroadcasts.add("FREEZE_EVENT|" + attacker.id + "|" + targetId);
 
         // Weapon is consumed; attacker enters cooldown
         attacker.freezeRayUntilSec      = 0;

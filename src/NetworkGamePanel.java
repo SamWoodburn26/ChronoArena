@@ -143,6 +143,26 @@ class NetworkGamePanel extends JPanel {
     // Freeze-ray fire
     // -------------------------------------------------------------------------
 
+    /**
+     * Called when the server confirms a FREEZE_EVENT for any player (including us).
+     * Message format: FREEZE_EVENT|attackerId|targetId
+     */
+    void onFreezeEvent(String msg) {
+        String[] parts = msg.split("\\|");
+        if (parts.length < 3) return;
+        try {
+            int attackerId = Integer.parseInt(parts[1]);
+            int targetId   = Integer.parseInt(parts[2]);
+            NetworkGameModel.PlayerSnapshot attacker = model.players.get(attackerId);
+            NetworkGameModel.PlayerSnapshot target   = model.players.get(targetId);
+            if (attacker == null || target == null) return;
+            double ax = (attackerId == myPlayerId && initialized) ? localX : attacker.x;
+            double ay = (attackerId == myPlayerId && initialized) ? localY : attacker.y;
+            SwingUtilities.invokeLater(() ->
+                freezeRayEffect = new FreezeRayEffect(ax, ay, target.x, target.y));
+        } catch (NumberFormatException ignored) {}
+    }
+
     private void fireFreeze() {
         NetworkGameModel.PlayerSnapshot me = model.players.get(myPlayerId);
         if (me == null || !me.hasWeapon || me.frozen) return;
