@@ -187,6 +187,7 @@ public class Server {
     }
 
     public static void main(String[] args) throws IOException {
+        System.setProperty("java.net.preferIPv4Stack", "true");
         // Allow: java Server --properties /path/to/game.properties
         String propertiesPath = "properties.properties";
         for (int i = 0; i < args.length - 1; i++) {

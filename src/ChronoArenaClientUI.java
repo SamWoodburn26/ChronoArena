@@ -20,6 +20,7 @@ import java.util.Properties;
 public class ChronoArenaClientUI {
 
     public static void main(String[] args) {
+        System.setProperty("java.net.preferIPv4Stack", "true");
         // ---- Load properties ----
         String propertiesPath = "properties.properties";
         for (int i = 0; i < args.length - 1; i++) {
