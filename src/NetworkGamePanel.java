@@ -226,7 +226,7 @@ class NetworkGamePanel extends JPanel {
         dy /= mag;
 
         localX = clamp(localX + dx * PLAYER_SPEED * dt, 0, model.mapWidth);
-        localY = clamp(localY + dy * PLAYER_SPEED * dt, 0, model.mapHeight);
+        localY = clamp(localY + dy * PLAYER_SPEED * dt, HUD_HEIGHT, model.mapHeight);
 
         client.sendMove(localX, localY);
     }

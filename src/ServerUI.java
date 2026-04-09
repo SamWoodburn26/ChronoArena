@@ -2,6 +2,10 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.util.Properties;
 
 /**
  * Server-side GUI: spectator game view on the left + control panel on the right.
@@ -61,6 +65,8 @@ public class ServerUI {
 
         panel.add(monoLabel("SERVER CONTROL",
                 new Font(Font.MONOSPACED, Font.BOLD, 13), new Color(214, 7, 29), 10));
+        panel.add(monoLabel("IP: " + getLocalIP(),
+                new Font(Font.MONOSPACED, Font.PLAIN, 11), new Color(180, 180, 180), 4));
         panel.add(redSeparator());
 
         statusLabel = monoLabel("STATUS: RUNNING",
@@ -98,6 +104,12 @@ public class ServerUI {
             }
         });
         panel.add(btnRow(stopBtn));
+        panel.add(Box.createVerticalStrut(6));
+
+        // SETTINGS button
+        JButton settingsBtn = styledButton("GAME SETTINGS", new Color(20, 20, 60));
+        settingsBtn.addActionListener(e -> showSettingsDialog());
+        panel.add(btnRow(settingsBtn));
 
         panel.add(redSeparator());
         panel.add(monoLabel("CONNECTED PLAYERS",
@@ -117,6 +129,124 @@ public class ServerUI {
 
         panel.add(Box.createVerticalGlue());
         return panel;
+    }
+
+    // -------------------------------------------------------------------------
+    // Settings dialog
+    // -------------------------------------------------------------------------
+
+    private void showSettingsDialog() {
+        Properties current = GameState.INSTANCE.getConfigAsProperties();
+
+        // Field definitions: [label, propertyKey, currentValue]
+        Object[][] fields = {
+            // Round
+            { "Round Duration (sec)",      "round_duration_sec"        },
+            // Zones
+            { "Zone Count",                "zone_count"                },
+            { "Capture Time (sec)",        "zone_capture_sec"          },
+            { "Contest Time (sec)",        "zone_capture_contest_sec"  },
+            { "Grace Period (sec)",        "zone_grace_sec"            },
+            { "Points / sec",              "zone_points_per_sec"       },
+            // Items
+            { "Max Active Items",          "item_max_active"           },
+            { "Energy Item Points",        "energy_item_points"        },
+            { "Spawn Interval (ticks)",    "item_spawn_interval_ticks" },
+            // Freeze
+            { "Freeze Duration (sec)",     "freeze_duration_sec"       },
+            { "Freeze Cooldown (sec)",     "freeze_cooldown_sec"       },
+            { "Weapon TTL (sec)",          "freeze_weapon_ttl_sec"     },
+            { "Freeze Penalty (pts)",      "freeze_penalty_points"     },
+        };
+
+        // Build form panel
+        JPanel form = new JPanel(new GridBagLayout());
+        form.setBackground(Color.BLACK);
+        GridBagConstraints gc = new GridBagConstraints();
+        gc.insets = new Insets(3, 8, 3, 8);
+        gc.anchor = GridBagConstraints.WEST;
+
+        JTextField[] inputs = new JTextField[fields.length];
+
+        String[] sectionHeaders = {
+            "round_duration_sec", "zone_count", "item_max_active", "freeze_duration_sec"
+        };
+        String[] sectionTitles = { "ROUND", "ZONES", "ITEMS", "FREEZE" };
+
+        int row = 0;
+        int sectionIdx = 0;
+        for (int i = 0; i < fields.length; i++) {
+            String key = (String) fields[i][1];
+
+            // Section header
+            if (sectionIdx < sectionHeaders.length && key.equals(sectionHeaders[sectionIdx])) {
+                gc.gridx = 0; gc.gridy = row; gc.gridwidth = 2;
+                JLabel header = new JLabel(sectionTitles[sectionIdx]);
+                header.setFont(new Font(Font.MONOSPACED, Font.BOLD, 11));
+                header.setForeground(new Color(214, 7, 29));
+                header.setBorder(BorderFactory.createEmptyBorder(row == 0 ? 0 : 8, 0, 2, 0));
+                form.add(header, gc);
+                gc.gridwidth = 1;
+                row++;
+                sectionIdx++;
+            }
+
+            gc.gridx = 0; gc.gridy = row;
+            JLabel label = new JLabel((String) fields[i][0] + ":");
+            label.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+            label.setForeground(new Color(200, 200, 200));
+            form.add(label, gc);
+
+            gc.gridx = 1;
+            JTextField tf = new JTextField(current.getProperty(key, ""), 8);
+            tf.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
+            tf.setBackground(new Color(15, 15, 15));
+            tf.setForeground(Color.WHITE);
+            tf.setCaretColor(Color.WHITE);
+            tf.setBorder(BorderFactory.createLineBorder(new Color(80, 0, 0)));
+            inputs[i] = tf;
+            form.add(tf, gc);
+            row++;
+        }
+
+        // Note label
+        gc.gridx = 0; gc.gridy = row; gc.gridwidth = 2;
+        JLabel note = new JLabel("Changes take effect on next RESET.");
+        note.setFont(new Font(Font.MONOSPACED, Font.ITALIC, 10));
+        note.setForeground(new Color(120, 5, 18));
+        note.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
+        form.add(note, gc);
+
+        JScrollPane scroll = new JScrollPane(form);
+        scroll.setBackground(Color.BLACK);
+        scroll.getViewport().setBackground(Color.BLACK);
+        scroll.setBorder(BorderFactory.createLineBorder(new Color(50, 0, 0)));
+        scroll.setPreferredSize(new Dimension(380, 420));
+
+        int result = JOptionPane.showConfirmDialog(
+                null, scroll, "Game Settings",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result != JOptionPane.OK_OPTION) return;
+
+        // Validate and apply
+        Properties updated = new Properties();
+        for (int i = 0; i < fields.length; i++) {
+            String key = (String) fields[i][1];
+            String val = inputs[i].getText().trim();
+            try {
+                Double.parseDouble(val); // accepts both int and double
+                updated.setProperty(key, val);
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(null,
+                        "Invalid value for \"" + fields[i][0] + "\": " + val,
+                        "Invalid Input", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+        }
+
+        GameState.INSTANCE.reconfigure(updated);
+        System.out.println("Settings updated via server UI.");
     }
 
     // -------------------------------------------------------------------------
@@ -203,6 +333,20 @@ public class ServerUI {
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
         row.add(btn);
         return row;
+    }
+
+    private static String getLocalIP() {
+        try {
+            for (NetworkInterface ni : java.util.Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                if (!ni.isUp() || ni.isLoopback() || ni.isVirtual()) continue;
+                for (InetAddress addr : java.util.Collections.list(ni.getInetAddresses())) {
+                    if (addr instanceof Inet4Address && !addr.isLoopbackAddress()) {
+                        return addr.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return "unavailable";
     }
 
     private JSeparator redSeparator() {

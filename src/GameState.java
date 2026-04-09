@@ -35,6 +35,7 @@ public class GameState {
     private double ITEM_PICKUP_RADIUS      = 30.0;
     public  int    MAP_WIDTH               = 900;
     public  int    MAP_HEIGHT              = 650;
+    public static final int HUD_HEIGHT     = 54;   // top boundary — matches NetworkGamePanel
     private int    MAX_ITEMS               = 4;
     private int    ZONE_COUNT              = 4;
     private int    ITEM_SPAWN_INTERVAL_TICKS = 20; // every N ticks, try to spawn an item
@@ -221,7 +222,7 @@ public class GameState {
                 double x = Double.parseDouble(parts[3]);
                 double y = Double.parseDouble(parts[4]);
                 p.x = clamp(x, 0, MAP_WIDTH);
-                p.y = clamp(y, 0, MAP_HEIGHT);
+                p.y = clamp(y, HUD_HEIGHT, MAP_HEIGHT);
             } catch (NumberFormatException ignored) {}
 
         } else if ("ACTION".equals(type) && parts.length >= 5 && "FREEZE".equals(parts[3])) {
@@ -507,27 +508,61 @@ public class GameState {
     }
 
     // -------------------------------------------------------------------------
+    // Live reconfiguration — updates settings without resetting game state.
+    // Call resetRound() afterwards for changes to take full effect.
+    // -------------------------------------------------------------------------
+
+    public synchronized void reconfigure(Properties props) {
+        ROUND_DURATION            = Double.parseDouble(props.getProperty("round_duration_sec",        String.valueOf(ROUND_DURATION)));
+        ZONE_CAPTURE_TIME         = Double.parseDouble(props.getProperty("zone_capture_sec",          String.valueOf(ZONE_CAPTURE_TIME)));
+        ZONE_CAPTURE_CONTEST      = Double.parseDouble(props.getProperty("zone_capture_contest_sec",  String.valueOf(ZONE_CAPTURE_CONTEST)));
+        GRACE_TIMER               = Double.parseDouble(props.getProperty("zone_grace_sec",            String.valueOf(GRACE_TIMER)));
+        ZONE_POINTS_PER_SEC       = Double.parseDouble(props.getProperty("zone_points_per_sec",       String.valueOf(ZONE_POINTS_PER_SEC)));
+        FREEZE_DURATION           = Double.parseDouble(props.getProperty("freeze_duration_sec",       String.valueOf(FREEZE_DURATION)));
+        FREEZE_COOLDOWN           = Double.parseDouble(props.getProperty("freeze_cooldown_sec",       String.valueOf(FREEZE_COOLDOWN)));
+        FREEZE_WEAPON_TTL         = Double.parseDouble(props.getProperty("freeze_weapon_ttl_sec",     String.valueOf(FREEZE_WEAPON_TTL)));
+        FREEZE_PENALTY            = Double.parseDouble(props.getProperty("freeze_penalty_points",     String.valueOf(FREEZE_PENALTY)));
+        ENERGY_ITEM_POINTS        = Double.parseDouble(props.getProperty("energy_item_points",        String.valueOf(ENERGY_ITEM_POINTS)));
+        MAX_ITEMS                 = Integer.parseInt  (props.getProperty("item_max_active",           String.valueOf(MAX_ITEMS)));
+        ITEM_SPAWN_INTERVAL_TICKS = Integer.parseInt  (props.getProperty("item_spawn_interval_ticks", String.valueOf(ITEM_SPAWN_INTERVAL_TICKS)));
+        ZONE_COUNT                = Integer.parseInt  (props.getProperty("zone_count",                String.valueOf(ZONE_COUNT)));
+    }
+
+    /** Returns current config values so UI fields can be pre-populated. */
+    public synchronized Properties getConfigAsProperties() {
+        Properties p = new Properties();
+        p.setProperty("round_duration_sec",        String.valueOf(ROUND_DURATION));
+        p.setProperty("zone_capture_sec",          String.valueOf(ZONE_CAPTURE_TIME));
+        p.setProperty("zone_capture_contest_sec",  String.valueOf(ZONE_CAPTURE_CONTEST));
+        p.setProperty("zone_grace_sec",            String.valueOf(GRACE_TIMER));
+        p.setProperty("zone_points_per_sec",       String.valueOf(ZONE_POINTS_PER_SEC));
+        p.setProperty("freeze_duration_sec",       String.valueOf(FREEZE_DURATION));
+        p.setProperty("freeze_cooldown_sec",       String.valueOf(FREEZE_COOLDOWN));
+        p.setProperty("freeze_weapon_ttl_sec",     String.valueOf(FREEZE_WEAPON_TTL));
+        p.setProperty("freeze_penalty_points",     String.valueOf(FREEZE_PENALTY));
+        p.setProperty("energy_item_points",        String.valueOf(ENERGY_ITEM_POINTS));
+        p.setProperty("item_max_active",           String.valueOf(MAX_ITEMS));
+        p.setProperty("item_spawn_interval_ticks", String.valueOf(ITEM_SPAWN_INTERVAL_TICKS));
+        p.setProperty("zone_count",                String.valueOf(ZONE_COUNT));
+        return p;
+    }
+
+    // -------------------------------------------------------------------------
     // Round reset — keeps connected players, resets everything else
     // -------------------------------------------------------------------------
 
     /**
      * Resets the round without disconnecting anyone.
-     * Called by the RESET console command in Server.java.
      * Player scores, positions, and power states are cleared; zones and items
-     * are re-initialised; the timer restarts from ROUND_DURATION.
+     * are re-initialised with current config; the timer restarts from ROUND_DURATION.
      */
     public synchronized void resetRound() {
         timeLeftSec = ROUND_DURATION;
         gameOver    = false;
         tickCount   = 0;
 
-        // Reset all zones to unclaimed
-        for (Zone z : zones) {
-            z.ownerId           = -1;
-            z.contested         = false;
-            z.captureProgress   = 0;
-            z.capturingPlayerId = -1;
-        }
+        // Re-initialise zones so zone count / layout changes take effect
+        initZones();
 
         // Clear timers and queued actions
         graceTimers.clear();
