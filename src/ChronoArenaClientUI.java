@@ -41,9 +41,11 @@ public class ChronoArenaClientUI {
         int    tcpPort  = Integer.parseInt(props.getProperty("TCP_port",   "1234"));
         int    udpPort  = Integer.parseInt(props.getProperty("UDP_port",   "1235"));
 
-        // ---- Name-entry dialog ----
-        String playerName = showJoinDialog(serverIP, tcpPort);
-        if (playerName == null) return;   // user hit Cancel
+        // ---- Name / server dialog ----
+        String[] joinResult = showJoinDialog(serverIP, tcpPort);
+        if (joinResult == null) return;   // user hit Cancel
+        String playerName = joinResult[0];
+        serverIP          = joinResult[1];
 
         // ---- Connect to server ----
         Client client;
@@ -112,12 +114,16 @@ public class ChronoArenaClientUI {
      * Shows a modal dialog asking for the player's name.
      * Returns the trimmed name, or null if the user cancelled.
      */
-    private static String showJoinDialog(String serverIP, int tcpPort) {
+    /** Returns [playerName, serverIP], or null if the user cancelled. */
+    private static String[] showJoinDialog(String serverIP, int tcpPort) {
         JTextField nameField = new JTextField(18);
         nameField.setText("Player" + (1 + (int)(Math.random() * 99)));
         nameField.selectAll();
 
-        // Auto-focus the text field when the dialog appears
+        JTextField ipField = new JTextField(18);
+        ipField.setText(serverIP);
+
+        // Auto-focus the name field when the dialog appears
         nameField.addAncestorListener(new AncestorListener() {
             @Override public void ancestorAdded(AncestorEvent e) {
                 nameField.requestFocusInWindow();
@@ -127,16 +133,17 @@ public class ChronoArenaClientUI {
             @Override public void ancestorRemoved(AncestorEvent e) {}
         });
 
-        JLabel serverLabel = new JLabel("Server:  " + serverIP + "  :  " + tcpPort);
-        serverLabel.setForeground(Color.GRAY);
-
         JPanel panel = new JPanel(new GridBagLayout());
         GridBagConstraints c = new GridBagConstraints();
         c.insets = new Insets(4, 6, 4, 6);
         c.anchor = GridBagConstraints.WEST;
-        c.gridx = 0; c.gridy = 0; c.gridwidth = 2;
-        panel.add(serverLabel, c);
-        c.gridy = 1; c.gridwidth = 1;
+        c.gridx = 0; c.gridy = 0;
+        panel.add(new JLabel("Server IP:"), c);
+        c.gridx = 1;
+        panel.add(ipField, c);
+        c.gridx = 0; c.gridy = 1;
+        panel.add(new JLabel("Port:  " + tcpPort), c);
+        c.gridx = 0; c.gridy = 2;
         panel.add(new JLabel("Your name:"), c);
         c.gridx = 1;
         panel.add(nameField, c);
@@ -147,6 +154,8 @@ public class ChronoArenaClientUI {
 
         if (choice != JOptionPane.OK_OPTION) return null;
         String name = nameField.getText().trim();
-        return name.isEmpty() ? null : name;
+        String ip   = ipField.getText().trim();
+        if (name.isEmpty() || ip.isEmpty()) return null;
+        return new String[]{ name, ip };
     }
 }
