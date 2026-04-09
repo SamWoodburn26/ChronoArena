@@ -87,6 +87,7 @@ public class Server {
         // --- Game loop thread (~20 ticks/sec, configurable via tick_ms property) ---
         Thread gameLoopThread = new Thread(() -> {
             long lastTime = System.nanoTime();
+            boolean gameOverBroadcast = false;
             while (!serverSocket.isClosed()) {
                 try {
                     Thread.sleep(50);
@@ -103,12 +104,21 @@ public class Server {
 
                 GameState.INSTANCE.tick(dt);
 
-                String stateMsg = GameState.INSTANCE.isGameOver()
-                        ? GameState.INSTANCE.serializeGameOver()
-                        : GameState.INSTANCE.serialize();
-
-                for (ClientHandler ch : ClientHandler.clientHandlers) {
-                    ch.sendDirect(stateMsg);
+                if (GameState.INSTANCE.isGameOver()) {
+                    if (!gameOverBroadcast) {
+                        String gameOverMsg = GameState.INSTANCE.serializeGameOver();
+                        for (ClientHandler ch : ClientHandler.clientHandlers) {
+                            ch.sendDirect(gameOverMsg);
+                        }
+                        gameOverBroadcast = true;
+                        System.out.println("Game over broadcast sent.");
+                    }
+                } else {
+                    gameOverBroadcast = false;  // reset for next round
+                    String stateMsg = GameState.INSTANCE.serialize();
+                    for (ClientHandler ch : ClientHandler.clientHandlers) {
+                        ch.sendDirect(stateMsg);
+                    }
                 }
             }
         });
@@ -187,6 +197,7 @@ public class Server {
     }
 
     public static void main(String[] args) throws IOException {
+        System.setProperty("java.net.preferIPv4Stack", "true");
         // Allow: java Server --properties /path/to/game.properties
         String propertiesPath = "properties.properties";
         for (int i = 0; i < args.length - 1; i++) {

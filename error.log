@@ -2,5 +2,9 @@
 [Wed Apr 08 16:21:56 EDT 2026] lost connection to server: Socket closed
 [Wed Apr 08 16:21:56 EDT 2026] lost connection to server: Socket closed
 [Wed Apr 08 21:11:09 EDT 2026] lost connection to server: null
-[Wed Apr 08 21:20:27 EDT 2026] lost connection to server: Connection reset
-[Thu Apr 09 16:46:55 EDT 2026] lost connection to server: Connection reset
+[Wed Apr 08 21:47:35 EDT 2026] join handshake failed: null
+[Wed Apr 08 22:08:46 EDT 2026] join handshake failed: null
+[Wed Apr 08 22:26:37 EDT 2026] join handshake failed: null
+[Wed Apr 08 22:42:55 EDT 2026] join handshake failed: null
+[Wed Apr 08 22:43:49 EDT 2026] join handshake failed: null
+[Wed Apr 08 23:08:24 EDT 2026] lost connection to server: null
