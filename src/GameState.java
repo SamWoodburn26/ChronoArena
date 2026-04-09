@@ -586,6 +586,13 @@ public class GameState {
     public double  getTimeLeft() { return timeLeftSec; }
     public ConcurrentHashMap<Integer, Player> getPlayers() { return players; }
     public List<Zone> getZones() { return zones; }
+    public ConcurrentHashMap<Integer, Item>   getItems()  { return items; }
+
+    /** Returns seconds remaining on the grace timer for a zone, or 0 if none. */
+    public double getGraceRemaining(int zoneId) {
+        GraceTimer gt = graceTimers.get(zoneId);
+        return (gt != null) ? Math.max(0, gt.secondsLeft) : 0;
+    }
 
     private boolean isFrozen(Player p) {
         return p.frozenUntilSec > nowSec();

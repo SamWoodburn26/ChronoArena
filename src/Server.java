@@ -1,3 +1,4 @@
+import javax.swing.SwingUtilities;
 import java.io.FileInputStream;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -133,60 +134,9 @@ public class Server {
         gameLoopThread.setDaemon(true);
         gameLoopThread.start();
 
-        // --- Kill switch: admin console on the main thread ---
-        // Commands:
-        //   KILL <playerId>   forcibly remove an erratic client
-        //   LIST              show all connected players
-        //   STOP              shut down the server
-        java.util.Scanner scanner = new java.util.Scanner(System.in);
-        System.out.println("Commands: KILL <playerId> | LIST | RESET | STOP");
-        while (scanner.hasNextLine()) {
-            String line = scanner.nextLine().trim();
-
-            if (line.equalsIgnoreCase("STOP")) {
-                System.out.println("Shutting down server.");
-                closeAll();
-                break;
-
-            } else if (line.equalsIgnoreCase("RESET")) {
-                GameState.INSTANCE.resetRound();
-                String notice = "SERVER: New round started — good luck!";
-                for (ClientHandler ch : ClientHandler.clientHandlers) {
-                    ch.sendDirect(notice);
-                }
-                System.out.println("Round reset. " + ClientHandler.clientHandlers.size() + " player(s) still connected.");
-
-            } else if (line.equalsIgnoreCase("LIST")) {
-                if (ClientHandler.clientHandlers.isEmpty()) {
-                    System.out.println("No players connected.");
-                } else {
-                    System.out.println("Connected players:");
-                    for (ClientHandler ch : ClientHandler.clientHandlers) {
-                        System.out.println("  id=" + ch.playerId);
-                    }
-                }
-
-            } else if (line.toUpperCase().startsWith("KILL ")) {
-                try {
-                    int targetId = Integer.parseInt(line.substring(5).trim());
-                    boolean found = false;
-                    for (ClientHandler ch : ClientHandler.clientHandlers) {
-                        if (ch.playerId == targetId) {
-                            ch.killClient("removed by server administrator");
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found) System.out.println("Player " + targetId + " not found.");
-                } catch (NumberFormatException e) {
-                    System.out.println("Usage: KILL <playerId>");
-                }
-
-            } else if (!line.isEmpty()) {
-                System.out.println("Unknown command. Use KILL <playerId>, LIST, or STOP.");
-            }
-        }
-        scanner.close();
+        // --- Server GUI (main thread hands off to EDT) ---
+        final Server self = this;
+        SwingUtilities.invokeLater(() -> new ServerUI(self).show());
     }
 
     public void closeAll() {
