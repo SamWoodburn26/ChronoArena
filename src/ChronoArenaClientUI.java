@@ -7,6 +7,8 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
 import java.net.Socket;
 import java.util.Properties;
 
@@ -53,7 +55,8 @@ public class ChronoArenaClientUI {
         try {
             System.out.println("[DEBUG] Attempting connection to " + serverIP + ":" + tcpPort);
             System.out.println("IP bytes: "); for (byte b : serverIP.getBytes()) { System.out.printf("%02x ", b); } System.out.println(); System.out.println("IP repr: '" + serverIP + "'"); System.out.println("IP length: " + serverIP.length());
-            Socket         tcpSocket  = new Socket(serverIP, tcpPort);
+            Socket         tcpSocket  = new Socket(Proxy.NO_PROXY);
+            tcpSocket.connect(new InetSocketAddress(serverIP, tcpPort));
             DatagramSocket udpSocket  = new DatagramSocket();
             InetAddress    serverAddr = InetAddress.getByName(serverIP);
 
