@@ -1,7 +1,6 @@
 import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -10,8 +9,6 @@ import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.io.FileWriter;
-import java.io.IOException;
 
 // @KFrancis05, help from Claude.ai
 
@@ -701,9 +698,4 @@ public class GameState {
         return Math.max(lo, Math.min(hi, v));
     }
 
-    static void logError(String context, Exception e) {
-        try (FileWriter fw = new FileWriter("error.log", true)) {
-            fw.write("[" + new Date() + "] " + context + ": " + e.getMessage() + "\n");
-        } catch (IOException ignored) {}
-    }
 }

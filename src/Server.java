@@ -1,12 +1,10 @@
 import javax.swing.SwingUtilities;
 import java.io.FileInputStream;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.Date;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -34,7 +32,7 @@ public class Server {
                     new Thread(handler).start();
                 } catch (IOException e) {
                     if (!serverSocket.isClosed()) {
-                        logError("tcp accept error", e);
+                        System.err.println("tcp accept error: " + e.getMessage());
                     }
                 }
             }
@@ -55,7 +53,7 @@ public class Server {
                     String msg = new String(pkt.getData(), 0, pkt.getLength()).trim();
 
                     // Expected formats:
-                    //   MOVE|seqNum|playerId|x|y
+                    //   MOVE|seqNum|playerId|dx|dy
                     //   ACTION|seqNum|playerId|FREEZE|targetId
                     String[] parts = msg.split("\\|");
                     if (parts.length < 3) continue;
@@ -77,7 +75,7 @@ public class Server {
 
                 } catch (IOException e) {
                     if (!datagramSocket.isClosed()) {
-                        logError("udp receive error", e);
+                        System.err.println("udp receive error: " + e.getMessage());
                     }
                 }
             }
@@ -85,7 +83,7 @@ public class Server {
         udpThread.setDaemon(true);
         udpThread.start();
 
-        // --- Game loop thread (~20 ticks/sec, configurable via tick_ms property) ---
+        // --- Game loop thread (~20 ticks/sec) ---
         Thread gameLoopThread = new Thread(() -> {
             long lastTime = System.nanoTime();
             boolean gameOverBroadcast = false;
@@ -144,14 +142,8 @@ public class Server {
             if (serverSocket   != null) serverSocket.close();
             if (datagramSocket != null) datagramSocket.close();
         } catch (IOException e) {
-            logError("error closing server", e);
+            System.err.println("error closing server: " + e.getMessage());
         }
-    }
-
-    static void logError(String context, Exception e) {
-        try (FileWriter fw = new FileWriter("error.log", true)) {
-            fw.write("[" + new Date() + "] " + context + ": " + e.getMessage() + "\n");
-        } catch (IOException ignored) {}
     }
 
     public static void main(String[] args) throws IOException {
@@ -170,7 +162,6 @@ public class Server {
             System.out.println("Loaded properties from: " + propertiesPath);
         } catch (IOException e) {
             System.out.println("Warning: could not load '" + propertiesPath + "', using defaults.");
-            logError("could not load properties", e);
         }
 
         // Configure game state BEFORE opening sockets so no client can join
