@@ -51,6 +51,7 @@ public class ChronoArenaClientUI {
         // ---- Connect to server ----
         Client client;
         try {
+            System.out.println("[DEBUG] Attempting connection to " + serverIP + ":" + tcpPort);
             Socket         tcpSocket  = new Socket(serverIP, tcpPort);
             DatagramSocket udpSocket  = new DatagramSocket();
             InetAddress    serverAddr = InetAddress.getByName(serverIP);
