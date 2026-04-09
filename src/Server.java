@@ -104,6 +104,14 @@ public class Server {
 
                 GameState.INSTANCE.tick(dt);
 
+                // Broadcast any events queued during this tick (e.g. freeze rays)
+                String event;
+                while ((event = GameState.INSTANCE.pendingBroadcasts.poll()) != null) {
+                    for (ClientHandler ch : ClientHandler.clientHandlers) {
+                        ch.sendDirect(event);
+                    }
+                }
+
                 if (GameState.INSTANCE.isGameOver()) {
                     if (!gameOverBroadcast) {
                         String gameOverMsg = GameState.INSTANCE.serializeGameOver();
