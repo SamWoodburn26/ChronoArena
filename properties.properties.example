@@ -1,7 +1,39 @@
-serverIP=localhost
+# ---------------------------------------------------------------
+# ChronoArena  —  runtime configuration  (example / reference)
+# Rename to "properties.properties" or pass --properties <path>
+# ---------------------------------------------------------------
+
+# --- Network ---
+# Server IP address (clients must match; server ignores serverIP)
+serverIP=192.168.1.10
 TCP_port=1234
 UDP_port=1235
+
+# --- Identity (client only — server ignores player_name) ---
+player_name=Player1
+
+# --- Map dimensions (pixels) ---
 map_width=900
 map_height=650
-round_duration_sec=180
-player_name=Player1
+
+# --- Round ---
+round_duration_sec=180        # length of one match in seconds
+
+# --- Zones ---
+zone_count=4                  # number of capture zones (minimum 4; extras placed at center)
+zone_capture_sec=3            # seconds to capture an uncontested zone
+zone_capture_contest_sec=6    # seconds to capture while contested (slower)
+zone_grace_sec=5              # seconds before an abandoned zone reverts to unclaimed
+zone_points_per_sec=5         # points awarded per second to the zone owner
+
+# --- Items ---
+item_max_active=4             # maximum items on the map at once
+item_spawn_interval_ticks=20  # a new item is attempted every N ticks (~1 tick = 50 ms)
+item_pickup_radius=30         # pixels — how close a player must be to collect an item
+energy_item_points=25         # points granted by an energy orb
+
+# --- Freeze-ray weapon ---
+freeze_duration_sec=4         # how long the target stays frozen
+freeze_cooldown_sec=8         # attacker must wait this long before firing again
+freeze_weapon_ttl_sec=30      # weapon expires after this many seconds if not fired
+freeze_penalty_points=10      # points deducted from the frozen player

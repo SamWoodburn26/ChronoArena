@@ -9,40 +9,64 @@ import java.net.InetAddress;
 import java.net.Socket;
 import java.util.Date;
 import java.util.Properties;
+import java.util.function.Consumer;
 
 //help from Claude.ai
 
 public class Client {
     private Socket socket;
     private DatagramSocket udpSocket;
-    private DataInputStream dataInputStream;
+    private DataInputStream  dataInputStream;
     private DataOutputStream dataOutputStream;
     private String playerName;
-    private int playerId = -1;
+    private int    playerId = -1;
 
     private InetAddress serverAddress;
-    private int udpPort;
+    private int         udpPort;
 
-    // Sequence number for UDP packets (incremented per send)
+    // Sequence number incremented for every UDP packet sent
     private int udpSeqNum = 0;
 
-    public Client(Socket socket, DatagramSocket udpSocket, String playerName, InetAddress serverAddress, int udpPort) {
+    // Guard against closeEverything() being called more than once
+    private volatile boolean closed = false;
+
+    // Callbacks wired by ChronoArenaClientUI before listenForMessage() is called
+    private Consumer<String> stateCallback    = null;
+    private Consumer<String> gameOverCallback = null;
+
+    public Client(Socket socket, DatagramSocket udpSocket, String playerName,
+                  InetAddress serverAddress, int udpPort) {
         try {
-            this.socket = socket;
-            this.udpSocket = udpSocket;
-            this.playerName = playerName;
+            this.socket        = socket;
+            this.udpSocket     = udpSocket;
+            this.playerName    = playerName;
             this.serverAddress = serverAddress;
-            this.udpPort = udpPort;
+            this.udpPort       = udpPort;
             this.dataOutputStream = new DataOutputStream(socket.getOutputStream());
-            this.dataInputStream = new DataInputStream(socket.getInputStream());
+            this.dataInputStream  = new DataInputStream(socket.getInputStream());
         } catch (IOException e) {
             logError("client init failed", e);
             closeEverything();
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Callback setters — call these BEFORE listenForMessage()
+    // -------------------------------------------------------------------------
+
+    /** Called on the TCP listener thread each time a STATE message arrives. */
+    public void setStateCallback(Consumer<String> cb)    { this.stateCallback    = cb; }
+
+    /** Called on the TCP listener thread when a GAMEOVER message arrives. */
+    public void setGameOverCallback(Consumer<String> cb) { this.gameOverCallback = cb; }
+
+    // -------------------------------------------------------------------------
+    // Join handshake (TCP, synchronous)
+    // -------------------------------------------------------------------------
+
     /**
-     * Sends JOIN message to server over TCP and waits for WELCOME|playerId response.
+     * Sends JOIN|playerName over TCP and blocks until WELCOME|playerId is received.
+     * Must be called before listenForMessage().
      */
     public void join() {
         try {
@@ -51,7 +75,7 @@ public class Client {
             String response = dataInputStream.readUTF();
             if (response.startsWith("WELCOME|")) {
                 playerId = Integer.parseInt(response.substring(8).trim());
-                System.out.println("Connected to game as: " + playerName);
+                System.out.println("Joined game as: " + playerName + " (id=" + playerId + ")");
             }
         } catch (IOException e) {
             logError("join failed", e);
@@ -59,65 +83,77 @@ public class Client {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // TCP listener (async, runs on its own thread)
+    // -------------------------------------------------------------------------
+
     /**
-     * Listens for TCP messages from server (game state, gameover, kill switch).
-     * Runs on its own thread.
+     * Starts a background thread that reads server messages and dispatches them
+     * to the registered callbacks.
      */
     public void listenForMessage() {
-        new Thread(() -> {
-            while (socket != null && socket.isConnected()) {
+        Thread t = new Thread(() -> {
+            while (!closed && socket != null && socket.isConnected()) {
                 try {
                     String msg = dataInputStream.readUTF();
                     handleServerMessage(msg);
                 } catch (IOException e) {
-                    logError("lost connection to server", e);
-                    closeEverything();
+                    if (!closed) {
+                        logError("lost connection to server", e);
+                        closeEverything();
+                    }
                     break;
                 }
             }
-        }).start();
+        });
+        t.setDaemon(true);  // don't prevent JVM exit when only this thread is left
+        t.start();
     }
 
     private void handleServerMessage(String msg) {
         if (msg.startsWith("STATE|")) {
-            // TODO (Person B): parse and update shared UI game state here
-            // GameStateParser.parse(msg) -> update local render model
+            if (stateCallback != null) stateCallback.accept(msg);
+
         } else if (msg.startsWith("GAMEOVER|")) {
+            if (gameOverCallback != null) gameOverCallback.accept(msg);
+            // Print winner to console
             String[] parts = msg.split("\\|");
             if (parts.length >= 2) {
                 String[] info = parts[1].split(",");
                 if (info.length >= 3) {
-                    System.out.println("Game over! Winner: " + info[1] + " with " + info[2] + " points.");
+                    System.out.println("Game over!  Winner: " + info[1] + "  Score: " + info[2]);
                 }
             }
-            closeEverything();
+            // Stay connected — server may issue RESET to start a new round.
+
         } else if (msg.startsWith("KILLED|")) {
-            System.out.println("You have been removed from the game.");
+            System.out.println("You were removed from the game by the server.");
             closeEverything();
+
         } else if (msg.startsWith("SERVER:")) {
             System.out.println(msg);
         }
     }
 
-    /**
-     * Sends a MOVE packet over UDP.
-     * Called by the UI/input layer when the player moves.
-     */
+    // -------------------------------------------------------------------------
+    // UDP senders (called from the Swing EDT via NetworkGamePanel)
+    // -------------------------------------------------------------------------
+
+    /** Sends a MOVE packet to the server with the player's new position. */
     public void sendMove(double x, double y) {
         String msg = "MOVE|" + (udpSeqNum++) + "|" + playerId + "|"
                 + String.format("%.1f", x) + "|" + String.format("%.1f", y);
         sendUDP(msg);
     }
 
-    /**
-     * Sends a FREEZE action packet over UDP.
-     */
+    /** Sends a FREEZE action packet targeting the given player ID. */
     public void sendFreeze(int targetId) {
         String msg = "ACTION|" + (udpSeqNum++) + "|" + playerId + "|FREEZE|" + targetId;
         sendUDP(msg);
     }
 
     private void sendUDP(String msg) {
+        if (closed) return;
         try {
             byte[] data = msg.getBytes();
             DatagramPacket pkt = new DatagramPacket(data, data.length, serverAddress, udpPort);
@@ -127,12 +163,18 @@ public class Client {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Lifecycle
+    // -------------------------------------------------------------------------
+
     public void closeEverything() {
+        if (closed) return;
+        closed = true;
         try {
-            if (dataInputStream != null) dataInputStream.close();
+            if (dataInputStream  != null) dataInputStream.close();
             if (dataOutputStream != null) dataOutputStream.close();
-            if (socket != null) socket.close();
-            if (udpSocket != null && !udpSocket.isClosed()) udpSocket.close();
+            if (socket           != null) socket.close();
+            if (udpSocket        != null && !udpSocket.isClosed()) udpSocket.close();
         } catch (IOException e) {
             logError("error closing client", e);
         }
@@ -145,6 +187,10 @@ public class Client {
             fw.write("[" + new Date() + "] " + context + ": " + e.getMessage() + "\n");
         } catch (IOException ignored) {}
     }
+
+    // -------------------------------------------------------------------------
+    // Standalone entry point (headless test — no GUI)
+    // -------------------------------------------------------------------------
 
     public static void main(String[] args) throws IOException {
         String propertiesPath = "properties.properties";
@@ -159,22 +205,26 @@ public class Client {
             props.load(fis);
         } catch (IOException e) {
             logError("could not load properties", e);
-            // Proceed with defaults
         }
 
-        String serverIP   = props.getProperty("serverIP", "localhost");
-        int tcpPort       = Integer.parseInt(props.getProperty("TCP_port", "1234"));
-        int udpPort       = Integer.parseInt(props.getProperty("UDP_port", "1235"));
+        String serverIP   = props.getProperty("serverIP",   "localhost");
+        int    tcpPort    = Integer.parseInt(props.getProperty("TCP_port", "1234"));
+        int    udpPort    = Integer.parseInt(props.getProperty("UDP_port", "1235"));
         String playerName = props.getProperty("player_name", "Player" + (int)(Math.random() * 1000));
 
-        Socket tcpSocket      = new Socket(serverIP, tcpPort);
-        DatagramSocket udpSock = new DatagramSocket();
-        InetAddress serverAddr = InetAddress.getByName(serverIP);
+        Socket         tcpSocket  = new Socket(serverIP, tcpPort);
+        DatagramSocket udpSock    = new DatagramSocket();
+        InetAddress    serverAddr = InetAddress.getByName(serverIP);
 
         Client client = new Client(tcpSocket, udpSock, playerName, serverAddr, udpPort);
         client.join();
+
+        // Print all incoming state to stdout for headless debugging
+        client.setStateCallback(msg -> System.out.println("[STATE] " + msg));
+        client.setGameOverCallback(msg -> System.out.println("[GAMEOVER] " + msg));
         client.listenForMessage();
 
-        // TODO (Person B): launch UI, wire sendMove/sendFreeze into input handlers
+        // Keep the main thread alive so the daemon listener stays running
+        try { Thread.currentThread().join(); } catch (InterruptedException ignored) {}
     }
 }
