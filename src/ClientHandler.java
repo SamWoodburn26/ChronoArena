@@ -12,14 +12,17 @@ public class ClientHandler implements Runnable {
     public static final CopyOnWriteArrayList<ClientHandler> clientHandlers = new CopyOnWriteArrayList<>();
 
     private Socket socket;
-    private DataInputStream dataInputStream;
+    private DataInputStream  dataInputStream;
     private DataOutputStream dataOutputStream;
     private String playerName;
-    public int playerId = -1;
+    public  int    playerId = -1;
+
+    // Guards against closeEverything() being called more than once from concurrent threads
+    private volatile boolean closed = false;
 
     public ClientHandler(Socket socket) {
         try {
-            this.socket = socket;
+            this.socket           = socket;
             this.dataOutputStream = new DataOutputStream(socket.getOutputStream());
             this.dataInputStream  = new DataInputStream(socket.getInputStream());
         } catch (IOException e) {
@@ -30,13 +33,14 @@ public class ClientHandler implements Runnable {
 
     @Override
     public void run() {
-        // First message must be JOIN|playerName
+        // First message from the client must be:  JOIN|playerName
         try {
             String joinMsg = dataInputStream.readUTF();
             if (joinMsg.startsWith("JOIN|")) {
                 playerName = joinMsg.substring(5).trim();
+                if (playerName.isEmpty()) playerName = "Player";
             } else {
-                // Unexpected first message — drop this connection
+                // Unexpected first message — reject the connection
                 closeEverything();
                 return;
             }
@@ -44,9 +48,15 @@ public class ClientHandler implements Runnable {
             playerId = GameState.INSTANCE.addPlayer(playerName);
             clientHandlers.add(this);
 
+            // Tell the new client its assigned ID
             sendDirect("WELCOME|" + playerId);
+
+            // Immediately push the current game state so the client has something
+            // to render before the next tick broadcast arrives
+            sendDirect(GameState.INSTANCE.serialize());
+
             broadcastMessage("SERVER: " + playerName + " joined the game");
-            System.out.println("A player connected.");
+            System.out.println("Player " + playerId + " (" + playerName + ") connected.");
 
         } catch (IOException e) {
             logError("join handshake failed", e);
@@ -54,14 +64,15 @@ public class ClientHandler implements Runnable {
             return;
         }
 
-        // Keep connection alive — game loop pushes state via sendDirect()
-        // We still listen in case of future client->server TCP messages
-        while (socket != null && socket.isConnected()) {
+        // Keep the TCP connection alive.  The game loop pushes state via sendDirect().
+        // We still drain the read side so we can detect disconnects promptly, and to
+        // support any future client->server TCP messages (e.g. chat).
+        while (!closed && socket != null && socket.isConnected()) {
             try {
-                // Block-read; if client disconnects this throws and we clean up
                 String msg = dataInputStream.readUTF();
                 handleClientMessage(msg);
             } catch (IOException e) {
+                // Client disconnected or stream error
                 closeEverything();
                 break;
             }
@@ -69,20 +80,22 @@ public class ClientHandler implements Runnable {
     }
 
     private void handleClientMessage(String msg) {
-        // Reserved for future client->server TCP messages (e.g., chat, settings)
-        // Movement and actions come via UDP, not here
+        // Reserved for future client->server TCP messages (chat, settings, etc.)
+        // Movement and actions arrive via UDP, not here.
     }
 
     /**
-     * Broadcasts a message to every connected client.
+     * Broadcasts a message to every currently connected client.
      */
     public void broadcastMessage(String msg) {
         for (ClientHandler ch : clientHandlers) {
             try {
-                ch.dataOutputStream.writeUTF(msg);
-                ch.dataOutputStream.flush();
+                synchronized (ch) {
+                    ch.dataOutputStream.writeUTF(msg);
+                    ch.dataOutputStream.flush();
+                }
             } catch (IOException e) {
-                logError("broadcast failed", e);
+                logError("broadcast to player " + ch.playerId + " failed", e);
                 ch.closeEverything();
             }
         }
@@ -90,25 +103,26 @@ public class ClientHandler implements Runnable {
 
     /**
      * Sends a message directly to this client only.
-     * Used by the game loop to push state updates.
+     * Called by the game loop to push state updates; synchronized so the game
+     * loop thread and any other sender don't interleave writes.
      */
-    public void sendDirect(String msg) {
+    public synchronized void sendDirect(String msg) {
+        if (closed) return;
         try {
             dataOutputStream.writeUTF(msg);
             dataOutputStream.flush();
         } catch (IOException e) {
-            logError("send failed", e);
+            logError("send to player " + playerId + " failed", e);
             closeEverything();
         }
     }
 
     /**
-     * Sends a KILLED message to this specific client and removes them.
-     * This is the server-side kill switch.
+     * Server-side kill switch: sends a KILLED notice to the client and removes them.
      */
     public void killClient(String reason) {
         sendDirect("KILLED|" + reason);
-        System.out.println("A player was removed from the game.");
+        System.out.println("Player " + playerId + " was killed by server: " + reason);
         closeEverything();
     }
 
@@ -116,18 +130,20 @@ public class ClientHandler implements Runnable {
         if (clientHandlers.remove(this) && playerId != -1) {
             GameState.INSTANCE.removePlayer(playerId);
             broadcastMessage("SERVER: " + playerName + " has left the game");
-            System.out.println("A player disconnected.");
+            System.out.println("Player " + playerId + " (" + playerName + ") disconnected.");
         }
     }
 
     public void closeEverything() {
+        if (closed) return;   // already closing — prevent recursive/concurrent double-close
+        closed = true;
         removeClientHandler();
         try {
-            if (dataInputStream != null)  dataInputStream.close();
+            if (dataInputStream  != null) dataInputStream.close();
             if (dataOutputStream != null) dataOutputStream.close();
-            if (socket != null)           socket.close();
+            if (socket           != null) socket.close();
         } catch (IOException e) {
-            logError("error closing connection", e);
+            logError("error closing connection for player " + playerId, e);
         }
     }
 
