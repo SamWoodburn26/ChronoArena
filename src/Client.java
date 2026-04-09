@@ -44,6 +44,9 @@ public class Client {
             this.udpPort       = udpPort;
             this.dataOutputStream = new DataOutputStream(socket.getOutputStream());
             this.dataInputStream  = new DataInputStream(socket.getInputStream());
+            System.out.println("[DEBUG] Client initialized. TCP="
+                    + socket.getInetAddress().getHostAddress() + ":" + socket.getPort()
+                    + "  UDP server=" + serverAddress.getHostAddress() + ":" + udpPort);
         } catch (IOException e) {
             logError("client init failed", e);
             closeEverything();
@@ -70,12 +73,16 @@ public class Client {
      */
     public void join() {
         try {
+            System.out.println("[DEBUG] Sending JOIN for player: " + playerName);
             dataOutputStream.writeUTF("JOIN|" + playerName);
             dataOutputStream.flush();
             String response = dataInputStream.readUTF();
+            System.out.println("[DEBUG] Server response: " + response);
             if (response.startsWith("WELCOME|")) {
                 playerId = Integer.parseInt(response.substring(8).trim());
                 System.out.println("Joined game as: " + playerName + " (id=" + playerId + ")");
+            } else {
+                System.out.println("[DEBUG] Unexpected join response: " + response);
             }
         } catch (IOException e) {
             logError("join failed", e);
@@ -115,6 +122,7 @@ public class Client {
             if (stateCallback != null) stateCallback.accept(msg);
 
         } else if (msg.startsWith("GAMEOVER|")) {
+            System.out.println("[DEBUG] Received GAMEOVER message");
             if (gameOverCallback != null) gameOverCallback.accept(msg);
             // Print winner to console
             String[] parts = msg.split("\\|");
@@ -127,11 +135,15 @@ public class Client {
             // Stay connected — server may issue RESET to start a new round.
 
         } else if (msg.startsWith("KILLED|")) {
+            System.out.println("[DEBUG] Received KILLED: " + msg);
             System.out.println("You were removed from the game by the server.");
             closeEverything();
 
         } else if (msg.startsWith("SERVER:")) {
             System.out.println(msg);
+
+        } else {
+            System.out.println("[DEBUG] Unknown message from server: " + msg);
         }
     }
 
@@ -157,6 +169,7 @@ public class Client {
         try {
             byte[] data = msg.getBytes();
             DatagramPacket pkt = new DatagramPacket(data, data.length, serverAddress, udpPort);
+            System.out.println("[DEBUG] UDP -> " + msg);
             udpSocket.send(pkt);
         } catch (IOException e) {
             logError("udp send failed", e);
