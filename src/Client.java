@@ -158,10 +158,10 @@ public class Client {
     // UDP senders (called from the Swing EDT via NetworkGamePanel)
     // -------------------------------------------------------------------------
 
-    /** Sends a MOVE packet to the server with the player's new position. */
-    public void sendMove(double x, double y) {
+    /** Sends a MOVE packet to the server with the player's input direction (dx, dy). */
+    public void sendMove(double dx, double dy) {
         String msg = "MOVE|" + (udpSeqNum++) + "|" + playerId + "|"
-                + String.format("%.1f", x) + "|" + String.format("%.1f", y);
+                + String.format("%.4f", dx) + "|" + String.format("%.4f", dy);
         sendUDP(msg);
     }
 

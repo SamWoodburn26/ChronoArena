@@ -27,8 +27,6 @@ public class StressTest {
     private static final int DEFAULT_COUNT    = 50;
     private static final int DEFAULT_TCP_PORT = 1234;
     private static final int DEFAULT_UDP_PORT = 1235;
-    private static final int MAP_WIDTH        = 900;
-    private static final int MAP_HEIGHT       = 650;
 
     public static void main(String[] args) throws InterruptedException {
         if (args.length < 1) {
@@ -119,13 +117,10 @@ public class StressTest {
                 listener.start();
 
                 // --- Random movement loop ---
-                Random rng   = new Random();
-                double x     = 100 + rng.nextDouble() * (MAP_WIDTH  - 200);
-                double y     = 100 + rng.nextDouble() * (MAP_HEIGHT - 200);
-                double dx    = (rng.nextDouble() * 2 - 1);
-                double dy    = (rng.nextDouble() * 2 - 1);
-                double speed = 80 + rng.nextDouble() * 80; // 80–160 px/s
-                int    seq   = 0;
+                Random rng = new Random();
+                double dx  = rng.nextDouble() * 2 - 1;
+                double dy  = rng.nextDouble() * 2 - 1;
+                int    seq = 0;
 
                 long lastChange = System.currentTimeMillis();
 
@@ -137,22 +132,9 @@ public class StressTest {
                         lastChange = System.currentTimeMillis();
                     }
 
-                    // Normalize
-                    double mag = Math.hypot(dx, dy);
-                    if (mag > 1e-6) { dx /= mag; dy /= mag; }
-
-                    x += dx * speed * 0.05;
-                    y += dy * speed * 0.05;
-
-                    // Bounce off walls
-                    if (x < 10)          { x = 10;          dx = Math.abs(dx); }
-                    if (x > MAP_WIDTH-10) { x = MAP_WIDTH-10; dx = -Math.abs(dx); }
-                    if (y < 10)          { y = 10;          dy = Math.abs(dy); }
-                    if (y > MAP_HEIGHT-10){ y = MAP_HEIGHT-10;dy = -Math.abs(dy); }
-
-                    // Send MOVE via UDP
+                    // Send normalised direction — server applies PLAYER_SPEED
                     String msg  = "MOVE|" + (seq++) + "|" + playerId + "|"
-                            + String.format("%.1f", x) + "|" + String.format("%.1f", y);
+                            + String.format("%.4f", dx) + "|" + String.format("%.4f", dy);
                     byte[] data = msg.getBytes();
                     udp.send(new DatagramPacket(data, data.length, addr, udpPort));
 

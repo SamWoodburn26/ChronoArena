@@ -22,6 +22,7 @@ public class GameState {
     // Configurable constants — set via configure(Properties) before game starts.
     // All durations in seconds unless noted.
     // -------------------------------------------------------------------------
+    private static final double PLAYER_SPEED = 200.0;  // pixels per second
     private double ROUND_DURATION          = 180.0;
     private double ZONE_CAPTURE_TIME       = 3.0;
     private double ZONE_CAPTURE_CONTEST    = 6.0;
@@ -184,6 +185,7 @@ public class GameState {
 
         tickCount++;
         drainActionQueue();
+        applyPlayerMovement(dt);
         tickZoneCaptureAndItems(dt);
         tickGraceTimers(dt);
         tickFreezeTimers();
@@ -199,6 +201,16 @@ public class GameState {
         String action;
         while ((action = actionQueue.poll()) != null) {
             applyAction(action);
+        }
+    }
+
+    /** Moves every non-frozen player by their current input direction × speed × dt. */
+    private void applyPlayerMovement(double dt) {
+        for (Player p : players.values()) {
+            if (isFrozen(p)) { p.vx = 0; p.vy = 0; continue; }
+            if (p.vx == 0 && p.vy == 0) continue;
+            p.x = clamp(p.x + p.vx * PLAYER_SPEED * dt, 0, MAP_WIDTH);
+            p.y = clamp(p.y + p.vy * PLAYER_SPEED * dt, HUD_HEIGHT, MAP_HEIGHT);
         }
     }
 
@@ -219,10 +231,12 @@ public class GameState {
 
         if ("MOVE".equals(type) && parts.length >= 5) {
             try {
-                double x = Double.parseDouble(parts[3]);
-                double y = Double.parseDouble(parts[4]);
-                p.x = clamp(x, 0, MAP_WIDTH);
-                p.y = clamp(y, HUD_HEIGHT, MAP_HEIGHT);
+                double dx = Double.parseDouble(parts[3]);
+                double dy = Double.parseDouble(parts[4]);
+                // Normalise to unit vector so diagonal isn't faster
+                double mag = Math.hypot(dx, dy);
+                if (mag > 1e-6) { p.vx = dx / mag; p.vy = dy / mag; }
+                else            { p.vx = 0;         p.vy = 0; }
             } catch (NumberFormatException ignored) {}
 
         } else if ("ACTION".equals(type) && parts.length >= 5 && "FREEZE".equals(parts[3])) {
@@ -430,7 +444,7 @@ public class GameState {
     //   id,name,x,y,score,frozen,hasWeapon,frozenRemSec|   (one segment per player)
     //   ...
     // ZONES|
-    //   id,ownerId,contested,captureProgress,graceRemSec|  (one segment per zone)
+    //   id,x,y,w,h,ownerId,contested,captureProgress,graceRemSec|  (one segment per zone)
     //   ...
     // ITEMS|
     //   id,kind,x,y|                                       (one segment per active item)
@@ -463,6 +477,10 @@ public class GameState {
             if (gt != null) graceRem = Math.max(0, gt.secondsLeft);
 
             sb.append(z.id).append(",")
+              .append(z.rect.x).append(",")
+              .append(z.rect.y).append(",")
+              .append(z.rect.width).append(",")
+              .append(z.rect.height).append(",")
               .append(z.ownerId).append(",")
               .append(z.contested ? 1 : 0).append(",")
               .append(String.format("%.2f", z.captureProgress)).append(",")
@@ -593,20 +611,52 @@ public class GameState {
     // Helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * Places ZONE_COUNT zones at randomized positions using a grid layout.
+     *
+     * The playable area is divided into a cols×rows grid; each zone is assigned one
+     * cell and placed at a random position within it.  This guarantees:
+     *   - No overlapping zones
+     *   - Even coverage of the map regardless of ZONE_COUNT
+     *   - A different layout every round
+     */
     private void initZones() {
         zones.clear();
-        int margin = 60, zw = 160, zh = 120;
-        // Always place 4 corner zones first, then any extras along the center
-        zones.add(new Zone(1, new Rectangle(margin,                      margin,                       zw, zh)));
-        zones.add(new Zone(2, new Rectangle(MAP_WIDTH  - margin - zw,    margin,                       zw, zh)));
-        zones.add(new Zone(3, new Rectangle(margin,                      MAP_HEIGHT - margin - zh,     zw, zh)));
-        zones.add(new Zone(4, new Rectangle(MAP_WIDTH  - margin - zw,    MAP_HEIGHT - margin - zh,     zw, zh)));
+        final int ZW     = 145;   // zone width
+        final int ZH     = 105;   // zone height
+        final int MARGIN = 50;    // distance from map edges
+        final int PAD    = 12;    // minimum gap between zone and cell boundary
 
-        for (int i = 5; i <= ZONE_COUNT; i++) {
-            // Extra zones placed along the horizontal center
-            int cx = (int) ((i - 4) * (MAP_WIDTH / (ZONE_COUNT - 3.0)));
-            int cy = MAP_HEIGHT / 2 - zh / 2;
-            zones.add(new Zone(i, new Rectangle(clampI(cx - zw / 2, 0, MAP_WIDTH - zw), cy, zw, zh)));
+        // Playable area starts below the HUD
+        int areaX = MARGIN;
+        int areaY = HUD_HEIGHT + MARGIN;
+        int areaW = MAP_WIDTH  - 2 * MARGIN;
+        int areaH = MAP_HEIGHT - HUD_HEIGHT - 2 * MARGIN;
+
+        // Grid dimensions: favour wider grids so zones spread horizontally
+        int cols = (int) Math.ceil(Math.sqrt(ZONE_COUNT));
+        int rows = (int) Math.ceil((double) ZONE_COUNT / cols);
+
+        int cellW = areaW / cols;
+        int cellH = areaH / rows;
+
+        int id = 1;
+        outer:
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                if (id > ZONE_COUNT) break outer;
+
+                // Random top-left corner inside this cell, keeping the zone fully within bounds
+                int minX = areaX + c * cellW + PAD;
+                int maxX = areaX + c * cellW + cellW - ZW - PAD;
+                int minY = areaY + r * cellH + PAD;
+                int maxY = areaY + r * cellH + cellH - ZH - PAD;
+
+                int x = (maxX > minX) ? minX + rng.nextInt(maxX - minX) : minX;
+                int y = (maxY > minY) ? minY + rng.nextInt(maxY - minY) : minY;
+
+                zones.add(new Zone(id++, new Rectangle(x, y, ZW, ZH)));
+            }
         }
     }
 

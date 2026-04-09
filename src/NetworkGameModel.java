@@ -65,37 +65,8 @@ class NetworkGameModel {
     NetworkGameModel(Properties props) {
         mapWidth  = Integer.parseInt(props.getProperty("map_width",  "900"));
         mapHeight = Integer.parseInt(props.getProperty("map_height", "650"));
-        int zoneCount = Integer.parseInt(props.getProperty("zone_count", "4"));
-        initZones(zoneCount);
-    }
-
-    /**
-     * Mirrors GameState.initZones() exactly so zone rectangles match server placement.
-     * Both sides read the same properties file, so the layout is always in sync.
-     */
-    private void initZones(int zoneCount) {
-        zones.clear();
-        int margin = 60, zw = 160, zh = 120;
-
-        // Four corner zones (always present)
-        addZone(1, margin,                  margin);
-        addZone(2, mapWidth  - margin - zw, margin);
-        addZone(3, margin,                  mapHeight - margin - zh);
-        addZone(4, mapWidth  - margin - zw, mapHeight - margin - zh);
-
-        // Extra central zones when zone_count > 4
-        for (int i = 5; i <= zoneCount; i++) {
-            int cx = (int) ((i - 4) * (mapWidth / (zoneCount - 3.0)));
-            int cy = mapHeight / 2 - zh / 2;
-            addZone(i, clamp(cx - zw / 2, 0, mapWidth - zw), cy);
-        }
-    }
-
-    private void addZone(int id, int x, int y) {
-        ZoneSnapshot z = new ZoneSnapshot();
-        z.id   = id;
-        z.rect = new Rectangle(x, y, 160, 120);
-        zones.add(z);
+        // Zone rects are now sent by the server in every STATE message —
+        // no client-side zone init needed.
     }
 
     // -------------------------------------------------------------------------
@@ -162,25 +133,32 @@ class NetworkGameModel {
         players.keySet().retainAll(seen);  // remove players no longer in state
 
         // ---- Zones ----
+        // Rebuild the zone list every frame — rects are sent by the server so
+        // randomised layouts and zone-count changes are reflected automatically.
         if (zonesIdx != -1) {
             int end = (itemsIdx != -1) ? itemsIdx : parts.length;
+            List<ZoneSnapshot> freshZones = new ArrayList<>();
             for (int i = zonesIdx + 1; i < end; i++) {
                 if (parts[i].isEmpty()) continue;
                 String[] f = parts[i].split(",");
-                if (f.length < 5) continue;
+                if (f.length < 9) continue;  // id,x,y,w,h,ownerId,contested,captureProgress,graceRemSec
                 try {
-                    int id = Integer.parseInt(f[0]);
-                    for (ZoneSnapshot z : zones) {
-                        if (z.id == id) {
-                            z.ownerId         = Integer.parseInt(f[1]);
-                            z.contested       = "1".equals(f[2]);
-                            z.captureProgress = Double.parseDouble(f[3]);
-                            z.graceRemSec     = Double.parseDouble(f[4]);
-                            break;
-                        }
-                    }
+                    ZoneSnapshot z    = new ZoneSnapshot();
+                    z.id              = Integer.parseInt(f[0]);
+                    z.rect            = new Rectangle(
+                                            Integer.parseInt(f[1]),
+                                            Integer.parseInt(f[2]),
+                                            Integer.parseInt(f[3]),
+                                            Integer.parseInt(f[4]));
+                    z.ownerId         = Integer.parseInt(f[5]);
+                    z.contested       = "1".equals(f[6]);
+                    z.captureProgress = Double.parseDouble(f[7]);
+                    z.graceRemSec     = Double.parseDouble(f[8]);
+                    freshZones.add(z);
                 } catch (NumberFormatException ignored) {}
             }
+            zones.clear();
+            zones.addAll(freshZones);
         }
 
         // ---- Items ----
@@ -221,11 +199,4 @@ class NetworkGameModel {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    private static int clamp(int v, int lo, int hi) {
-        return Math.max(lo, Math.min(hi, v));
-    }
 }
