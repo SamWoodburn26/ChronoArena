@@ -56,7 +56,7 @@ public class ChronoArenaClientUI {
             System.out.println("[DEBUG] Attempting connection to " + serverIP + ":" + tcpPort);
             System.out.println("IP bytes: "); for (byte b : serverIP.getBytes()) { System.out.printf("%02x ", b); } System.out.println(); System.out.println("IP repr: '" + serverIP + "'"); System.out.println("IP length: " + serverIP.length());
             Socket         tcpSocket  = new Socket(Proxy.NO_PROXY);
-            tcpSocket.connect(new InetSocketAddress(serverIP, tcpPort));
+            tcpSocket.connect(new InetSocketAddress(serverIP, tcpPort), 5000);
             DatagramSocket udpSocket  = new DatagramSocket();
             InetAddress    serverAddr = InetAddress.getByName(serverIP);
 
