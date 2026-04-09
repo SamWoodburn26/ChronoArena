@@ -19,6 +19,13 @@ From the project root:
 javac -d out src/*.java
 ```
 
+To build a distributable client jar:
+
+```bash
+echo "Main-Class: ChronoArenaClientUI" > manifest.txt
+jar cfm Client.jar manifest.txt -C out .
+```
+
 ---
 
 ## Run
@@ -29,7 +36,7 @@ javac -d out src/*.java
 java -cp out Server
 ```
 
-The server reads configuration from `properties.properties` in the working directory.
+A server window opens with a spectator view of the game and a control panel on the right.
 
 ### 2. Start each client (one terminal per player)
 
@@ -37,10 +44,17 @@ The server reads configuration from `properties.properties` in the working direc
 java -cp out ChronoArenaClientUI
 ```
 
-A name dialog appears — enter your name and click **Join**. The game window opens once connected.
+Or, if using the jar:
+
+```bash
+java -jar Client.jar
+```
+
+A join dialog appears — enter the **server IP** and your **name**, then click **OK**. The game window opens once connected.
 
 > To test on one machine, open two client terminals side by side. Both connect to `localhost` by default.  
-> To play across machines, set `serverIP` in `properties.properties` to the server's IP address before starting clients.
+> To play across machines on the same network, find the server's local IP with `ifconfig | grep "inet "` and enter it in the join dialog.  
+> To play across different networks, forward TCP `1234` and UDP `1235` on the server's router and use the server's public IP.
 
 ---
 
@@ -54,16 +68,17 @@ A name dialog appears — enter your name and click **Join**. The game window op
 
 ---
 
-## Server console commands
+## Server control panel
 
-Type these in the server terminal while it is running:
+The server window has a sidebar with the following controls:
 
-| Command | Effect |
+| Control | Effect |
 |---------|--------|
-| `LIST` | Show all connected players and their IDs |
-| `RESET` | End the current round and start a new one |
-| `KILL <id>` | Forcibly disconnect a player by ID |
-| `STOP` | Shut down the server |
+| **RESET ROUND** button | Ends the current round, resets all scores and zones, keeps all players connected |
+| **STOP SERVER** button | Prompts for confirmation, then shuts down the server and disconnects all players |
+| **KILL** button (per player) | Forcibly disconnects a specific player |
+
+The player list in the sidebar updates every 500 ms and shows each player's ID, name, and current score.
 
 ---
 
@@ -74,7 +89,7 @@ Type these in the server terminal while it is running:
 - **Grace period** — after a zone is captured, the owner keeps it for `zone_grace_sec` seconds even if they leave.
 - **Score** — players earn `zone_points_per_sec` points every second they own a zone.
 - **Energy pickups** — grant bonus points instantly.
-- **Freeze-ray pickups** — grant the weapon. Press `F` or `Space` to fire at the nearest enemy, freezing them for `freeze_duration_sec` seconds.
+- **Freeze-ray pickups** — grant the weapon. Press `F` or `Space` to fire at the nearest enemy, freezing them for `freeze_duration_sec` seconds. All players see the freeze ray beam when it fires.
 
 Round ends when the timer reaches zero. The player with the highest score wins.
 
@@ -82,16 +97,16 @@ Round ends when the timer reaches zero. The player with the highest score wins.
 
 ## Configuration
 
-Edit `properties.properties` to adjust the game:
+Edit `properties.properties` to adjust the game. This file must be in the working directory when the server and clients are started.
 
 | Property | Default | Description |
 |----------|---------|-------------|
-| `serverIP` | `localhost` | Server address (clients only) |
+| `serverIP` | `localhost` | Server address (clients only — overridden by join dialog) |
 | `TCP_port` | `1234` | TCP port |
 | `UDP_port` | `1235` | UDP port |
 | `map_width` / `map_height` | `900` / `650` | Map dimensions in pixels |
 | `round_duration_sec` | `180` | Round length in seconds |
-| `zone_count` | `4` | Number of capture zones (4–8) |
+| `zone_count` | `4` | Number of capture zones |
 | `zone_capture_sec` | `3` | Seconds to capture an unclaimed zone |
 | `zone_grace_sec` | `5` | Seconds owner keeps zone after leaving |
 | `zone_points_per_sec` | `5` | Points per second per owned zone |
