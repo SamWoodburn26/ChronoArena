@@ -1,9 +1,7 @@
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.net.Socket;
-import java.util.Date;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 //help from Claude.ai
@@ -27,7 +25,7 @@ public class ClientHandler implements Runnable {
             this.dataOutputStream = new DataOutputStream(socket.getOutputStream());
             this.dataInputStream  = new DataInputStream(socket.getInputStream());
         } catch (IOException e) {
-            logError("handler init failed", e);
+            System.err.println("handler init failed: " + e.getMessage());
             closeEverything();
         }
     }
@@ -60,7 +58,7 @@ public class ClientHandler implements Runnable {
             System.out.println("Player " + playerId + " (" + playerName + ") connected.");
 
         } catch (IOException e) {
-            logError("join handshake failed", e);
+            System.err.println("join handshake failed: " + e.getMessage());
             closeEverything();
             return;
         }
@@ -96,7 +94,6 @@ public class ClientHandler implements Runnable {
                     ch.dataOutputStream.flush();
                 }
             } catch (IOException e) {
-                logError("broadcast to player " + ch.playerId + " failed", e);
                 ch.closeEverything();
             }
         }
@@ -113,7 +110,6 @@ public class ClientHandler implements Runnable {
             dataOutputStream.writeUTF(msg);
             dataOutputStream.flush();
         } catch (IOException e) {
-            logError("send to player " + playerId + " failed", e);
             closeEverything();
         }
     }
@@ -148,13 +144,7 @@ public class ClientHandler implements Runnable {
             if (dataOutputStream != null) dataOutputStream.close();
             if (socket           != null) socket.close();
         } catch (IOException e) {
-            logError("error closing connection for player " + playerId, e);
+            System.err.println("error closing connection for player " + playerId + ": " + e.getMessage());
         }
-    }
-
-    static void logError(String context, Exception e) {
-        try (FileWriter fw = new FileWriter("error.log", true)) {
-            fw.write("[" + new Date() + "] " + context + ": " + e.getMessage() + "\n");
-        } catch (IOException ignored) {}
     }
 }

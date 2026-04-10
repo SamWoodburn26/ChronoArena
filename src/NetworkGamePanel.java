@@ -9,14 +9,12 @@ import java.util.List;
  *
  * Responsibilities:
  *   - Repaints at ~60 fps using a Swing Timer
- *   - Performs client-side position prediction for the local player so movement
- *     feels immediate even though server state arrives every ~50 ms
- *   - Routes WASD / arrow key input to client.sendMove() via UDP
+ *   - Routes WASD / arrow key input as direction flags to client.sendMove() via UDP
  *   - Routes F / Space key to client.sendFreeze() via UDP
+ *   - All position and game logic is server-authoritative; no local prediction
  */
 class NetworkGamePanel extends JPanel {
 
-    private static final double PLAYER_SPEED  = 220.0;  // pixels per second
     private static final int    PLAYER_RADIUS = 16;
     private static final int    HUD_HEIGHT    = 54;     // reserved top bar (px)
 
@@ -39,11 +37,6 @@ class NetworkGamePanel extends JPanel {
     private final Client           client;
     private final int              myPlayerId;
 
-    // Client-side prediction for the local player
-    private double  localX      = 0;
-    private double  localY      = 0;
-    private boolean initialized = false;
-
     // Held-key input flags (written and read only on EDT)
     private boolean inputUp, inputDown, inputLeft, inputRight;
 
@@ -52,8 +45,6 @@ class NetworkGamePanel extends JPanel {
     private final Font fontMed   = new Font(Font.MONOSPACED, Font.PLAIN, 13);
     private final Font fontSmall = new Font(Font.MONOSPACED, Font.PLAIN, 11);
     private final Font fontMicro = new Font(Font.MONOSPACED, Font.PLAIN,  9);
-
-    private long lastNanos = System.nanoTime();
 
     // Active freeze-ray beam (null when none; all fields are EDT-only)
     private FreezeRayEffect freezeRayEffect = null;
@@ -82,14 +73,8 @@ class NetworkGamePanel extends JPanel {
         setBackground(Color.BLACK);
         bindKeys();
 
-        // ~60 fps update + repaint loop
-        new Timer(16, e -> {
-            long now = System.nanoTime();
-            double dt = Math.min((now - lastNanos) / 1_000_000_000.0, 0.05);
-            lastNanos = now;
-            updateLocalPosition(dt);
-            repaint();
-        }).start();
+        // ~60 fps: send current input direction to server, then repaint server state
+        new Timer(16, e -> { sendMovementInput(); repaint(); }).start();
     }
 
     // -------------------------------------------------------------------------
@@ -156,8 +141,8 @@ class NetworkGamePanel extends JPanel {
             NetworkGameModel.PlayerSnapshot attacker = model.players.get(attackerId);
             NetworkGameModel.PlayerSnapshot target   = model.players.get(targetId);
             if (attacker == null || target == null) return;
-            double ax = (attackerId == myPlayerId && initialized) ? localX : attacker.x;
-            double ay = (attackerId == myPlayerId && initialized) ? localY : attacker.y;
+            double ax = attacker.x;
+            double ay = attacker.y;
             SwingUtilities.invokeLater(() ->
                 freezeRayEffect = new FreezeRayEffect(ax, ay, target.x, target.y));
         } catch (NumberFormatException ignored) {}
@@ -172,7 +157,7 @@ class NetworkGamePanel extends JPanel {
         int    bestId   = -1;
         for (NetworkGameModel.PlayerSnapshot other : model.players.values()) {
             if (other.id == myPlayerId || other.frozen) continue;
-            double dist = Math.hypot(other.x - localX, other.y - localY);
+            double dist = Math.hypot(other.x - me.x, other.y - me.y);
             if (dist < bestDist) {
                 bestDist = dist;
                 bestId   = other.id;
@@ -181,36 +166,21 @@ class NetworkGamePanel extends JPanel {
         if (bestId != -1) {
             NetworkGameModel.PlayerSnapshot target = model.players.get(bestId);
             if (target != null) {
-                freezeRayEffect = new FreezeRayEffect(localX, localY, target.x, target.y);
+                freezeRayEffect = new FreezeRayEffect(me.x, me.y, target.x, target.y);
             }
             client.sendFreeze(bestId);
         }
     }
 
     // -------------------------------------------------------------------------
-    // Client-side position prediction for the local player
+    // Input dispatch — send direction flags to server each frame
     // -------------------------------------------------------------------------
 
-    private void updateLocalPosition(double dt) {
-        // Server issued RESET — snap position back to the new spawn point
-        if (model.roundReset) {
-            model.roundReset = false;
-            initialized      = false;
-            freezeRayEffect  = null;
-        }
+    private void sendMovementInput() {
+        if (model.roundReset) { model.roundReset = false; freezeRayEffect = null; }
 
         NetworkGameModel.PlayerSnapshot me = model.players.get(myPlayerId);
-
-        // Wait until the server has told us where we are
-        if (!initialized) {
-            if (me == null) return;
-            localX      = me.x;
-            localY      = me.y;
-            initialized = true;
-        }
-
-        // Frozen players cannot move
-        if (me != null && me.frozen) return;
+        if (me == null || me.frozen) { client.sendMove(0, 0); return; }
 
         double dx = 0, dy = 0;
         if (inputUp)    dy -= 1;
@@ -218,17 +188,7 @@ class NetworkGamePanel extends JPanel {
         if (inputLeft)  dx -= 1;
         if (inputRight) dx += 1;
 
-        if (dx == 0 && dy == 0) return;
-
-        // Normalize diagonal movement to keep speed consistent
-        double mag = Math.hypot(dx, dy);
-        dx /= mag;
-        dy /= mag;
-
-        localX = clamp(localX + dx * PLAYER_SPEED * dt, 0, model.mapWidth);
-        localY = clamp(localY + dy * PLAYER_SPEED * dt, 0, model.mapHeight);
-
-        client.sendMove(localX, localY);
+        client.sendMove(dx, dy);  // server normalises and applies speed
     }
 
     // -------------------------------------------------------------------------
@@ -418,8 +378,8 @@ class NetworkGamePanel extends JPanel {
     private void drawPlayers(Graphics2D g2) {
         for (NetworkGameModel.PlayerSnapshot ps : model.players.values()) {
             boolean isMe = (ps.id == myPlayerId);
-            int px = (int) (isMe && initialized ? localX : ps.x);
-            int py = (int) (isMe && initialized ? localY : ps.y);
+            int px = (int) ps.x;
+            int py = (int) ps.y;
             int r  = PLAYER_RADIUS;
             // Local player is always drawn in red; others use the colour table
             Color pc = isMe ? RED_ACCENT : playerColor(ps.id);

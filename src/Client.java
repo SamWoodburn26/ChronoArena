@@ -1,13 +1,11 @@
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.FileInputStream;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.Socket;
-import java.util.Date;
 import java.util.Properties;
 import java.util.function.Consumer;
 
@@ -50,7 +48,7 @@ public class Client {
                     + socket.getInetAddress().getHostAddress() + ":" + socket.getPort()
                     + "  UDP server=" + serverAddress.getHostAddress() + ":" + udpPort);
         } catch (IOException e) {
-            logError("client init failed", e);
+            System.err.println("client init failed: " + e.getMessage());
             closeEverything();
         }
     }
@@ -93,7 +91,7 @@ public class Client {
                 System.out.println("[DEBUG] Unexpected join response: " + response);
             }
         } catch (IOException e) {
-            logError("join failed", e);
+            System.err.println("join failed: " + e.getMessage());
             closeEverything();
         }
     }
@@ -114,7 +112,7 @@ public class Client {
                     handleServerMessage(msg);
                 } catch (IOException e) {
                     if (!closed) {
-                        logError("lost connection to server", e);
+                        System.err.println("lost connection to server: " + e.getMessage());
                         closeEverything();
                     }
                     break;
@@ -163,10 +161,10 @@ public class Client {
     // UDP senders (called from the Swing EDT via NetworkGamePanel)
     // -------------------------------------------------------------------------
 
-    /** Sends a MOVE packet to the server with the player's new position. */
-    public void sendMove(double x, double y) {
+    /** Sends a MOVE packet to the server with the player's input direction (dx, dy). */
+    public void sendMove(double dx, double dy) {
         String msg = "MOVE|" + (udpSeqNum++) + "|" + playerId + "|"
-                + String.format("%.1f", x) + "|" + String.format("%.1f", y);
+                + String.format("%.4f", dx) + "|" + String.format("%.4f", dy);
         sendUDP(msg);
     }
 
@@ -184,7 +182,7 @@ public class Client {
             System.out.println("[DEBUG] UDP -> " + msg);
             udpSocket.send(pkt);
         } catch (IOException e) {
-            logError("udp send failed", e);
+            System.err.println("udp send failed: " + e.getMessage());
         }
     }
 
@@ -201,17 +199,11 @@ public class Client {
             if (socket           != null) socket.close();
             if (udpSocket        != null && !udpSocket.isClosed()) udpSocket.close();
         } catch (IOException e) {
-            logError("error closing client", e);
+            System.err.println("error closing client: " + e.getMessage());
         }
     }
 
     public int getPlayerId() { return playerId; }
-
-    static void logError(String context, Exception e) {
-        try (FileWriter fw = new FileWriter("error.log", true)) {
-            fw.write("[" + new Date() + "] " + context + ": " + e.getMessage() + "\n");
-        } catch (IOException ignored) {}
-    }
 
     // -------------------------------------------------------------------------
     // Standalone entry point (headless test — no GUI)
@@ -230,7 +222,7 @@ public class Client {
         try (FileInputStream fis = new FileInputStream(propertiesPath)) {
             props.load(fis);
         } catch (IOException e) {
-            logError("could not load properties", e);
+            System.err.println("could not load properties: " + e.getMessage());
         }
 
         String serverIP   = props.getProperty("serverIP",   "localhost");

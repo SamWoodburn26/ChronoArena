@@ -1,7 +1,6 @@
 import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -10,8 +9,6 @@ import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.io.FileWriter;
-import java.io.IOException;
 
 // @KFrancis05, help from Claude.ai
 
@@ -22,6 +19,7 @@ public class GameState {
     // Configurable constants — set via configure(Properties) before game starts.
     // All durations in seconds unless noted.
     // -------------------------------------------------------------------------
+    private static final double PLAYER_SPEED = 200.0;  // pixels per second
     private double ROUND_DURATION          = 180.0;
     private double ZONE_CAPTURE_TIME       = 3.0;
     private double ZONE_CAPTURE_CONTEST    = 6.0;
@@ -35,6 +33,7 @@ public class GameState {
     private double ITEM_PICKUP_RADIUS      = 30.0;
     public  int    MAP_WIDTH               = 900;
     public  int    MAP_HEIGHT              = 650;
+    public static final int HUD_HEIGHT     = 54;   // top boundary — matches NetworkGamePanel
     private int    MAX_ITEMS               = 4;
     private int    ZONE_COUNT              = 4;
     private int    ITEM_SPAWN_INTERVAL_TICKS = 20; // every N ticks, try to spawn an item
@@ -183,6 +182,7 @@ public class GameState {
 
         tickCount++;
         drainActionQueue();
+        applyPlayerMovement(dt);
         tickZoneCaptureAndItems(dt);
         tickGraceTimers(dt);
         tickFreezeTimers();
@@ -198,6 +198,16 @@ public class GameState {
         String action;
         while ((action = actionQueue.poll()) != null) {
             applyAction(action);
+        }
+    }
+
+    /** Moves every non-frozen player by their current input direction × speed × dt. */
+    private void applyPlayerMovement(double dt) {
+        for (Player p : players.values()) {
+            if (isFrozen(p)) { p.vx = 0; p.vy = 0; continue; }
+            if (p.vx == 0 && p.vy == 0) continue;
+            p.x = clamp(p.x + p.vx * PLAYER_SPEED * dt, 0, MAP_WIDTH);
+            p.y = clamp(p.y + p.vy * PLAYER_SPEED * dt, HUD_HEIGHT, MAP_HEIGHT);
         }
     }
 
@@ -218,10 +228,12 @@ public class GameState {
 
         if ("MOVE".equals(type) && parts.length >= 5) {
             try {
-                double x = Double.parseDouble(parts[3]);
-                double y = Double.parseDouble(parts[4]);
-                p.x = clamp(x, 0, MAP_WIDTH);
-                p.y = clamp(y, 0, MAP_HEIGHT);
+                double dx = Double.parseDouble(parts[3]);
+                double dy = Double.parseDouble(parts[4]);
+                // Normalise to unit vector so diagonal isn't faster
+                double mag = Math.hypot(dx, dy);
+                if (mag > 1e-6) { p.vx = dx / mag; p.vy = dy / mag; }
+                else            { p.vx = 0;         p.vy = 0; }
             } catch (NumberFormatException ignored) {}
 
         } else if ("ACTION".equals(type) && parts.length >= 5 && "FREEZE".equals(parts[3])) {
@@ -429,7 +441,7 @@ public class GameState {
     //   id,name,x,y,score,frozen,hasWeapon,frozenRemSec|   (one segment per player)
     //   ...
     // ZONES|
-    //   id,ownerId,contested,captureProgress,graceRemSec|  (one segment per zone)
+    //   id,x,y,w,h,ownerId,contested,captureProgress,graceRemSec|  (one segment per zone)
     //   ...
     // ITEMS|
     //   id,kind,x,y|                                       (one segment per active item)
@@ -462,6 +474,10 @@ public class GameState {
             if (gt != null) graceRem = Math.max(0, gt.secondsLeft);
 
             sb.append(z.id).append(",")
+              .append(z.rect.x).append(",")
+              .append(z.rect.y).append(",")
+              .append(z.rect.width).append(",")
+              .append(z.rect.height).append(",")
               .append(z.ownerId).append(",")
               .append(z.contested ? 1 : 0).append(",")
               .append(String.format("%.2f", z.captureProgress)).append(",")
@@ -507,27 +523,61 @@ public class GameState {
     }
 
     // -------------------------------------------------------------------------
+    // Live reconfiguration — updates settings without resetting game state.
+    // Call resetRound() afterwards for changes to take full effect.
+    // -------------------------------------------------------------------------
+
+    public synchronized void reconfigure(Properties props) {
+        ROUND_DURATION            = Double.parseDouble(props.getProperty("round_duration_sec",        String.valueOf(ROUND_DURATION)));
+        ZONE_CAPTURE_TIME         = Double.parseDouble(props.getProperty("zone_capture_sec",          String.valueOf(ZONE_CAPTURE_TIME)));
+        ZONE_CAPTURE_CONTEST      = Double.parseDouble(props.getProperty("zone_capture_contest_sec",  String.valueOf(ZONE_CAPTURE_CONTEST)));
+        GRACE_TIMER               = Double.parseDouble(props.getProperty("zone_grace_sec",            String.valueOf(GRACE_TIMER)));
+        ZONE_POINTS_PER_SEC       = Double.parseDouble(props.getProperty("zone_points_per_sec",       String.valueOf(ZONE_POINTS_PER_SEC)));
+        FREEZE_DURATION           = Double.parseDouble(props.getProperty("freeze_duration_sec",       String.valueOf(FREEZE_DURATION)));
+        FREEZE_COOLDOWN           = Double.parseDouble(props.getProperty("freeze_cooldown_sec",       String.valueOf(FREEZE_COOLDOWN)));
+        FREEZE_WEAPON_TTL         = Double.parseDouble(props.getProperty("freeze_weapon_ttl_sec",     String.valueOf(FREEZE_WEAPON_TTL)));
+        FREEZE_PENALTY            = Double.parseDouble(props.getProperty("freeze_penalty_points",     String.valueOf(FREEZE_PENALTY)));
+        ENERGY_ITEM_POINTS        = Double.parseDouble(props.getProperty("energy_item_points",        String.valueOf(ENERGY_ITEM_POINTS)));
+        MAX_ITEMS                 = Integer.parseInt  (props.getProperty("item_max_active",           String.valueOf(MAX_ITEMS)));
+        ITEM_SPAWN_INTERVAL_TICKS = Integer.parseInt  (props.getProperty("item_spawn_interval_ticks", String.valueOf(ITEM_SPAWN_INTERVAL_TICKS)));
+        ZONE_COUNT                = Integer.parseInt  (props.getProperty("zone_count",                String.valueOf(ZONE_COUNT)));
+    }
+
+    /** Returns current config values so UI fields can be pre-populated. */
+    public synchronized Properties getConfigAsProperties() {
+        Properties p = new Properties();
+        p.setProperty("round_duration_sec",        String.valueOf(ROUND_DURATION));
+        p.setProperty("zone_capture_sec",          String.valueOf(ZONE_CAPTURE_TIME));
+        p.setProperty("zone_capture_contest_sec",  String.valueOf(ZONE_CAPTURE_CONTEST));
+        p.setProperty("zone_grace_sec",            String.valueOf(GRACE_TIMER));
+        p.setProperty("zone_points_per_sec",       String.valueOf(ZONE_POINTS_PER_SEC));
+        p.setProperty("freeze_duration_sec",       String.valueOf(FREEZE_DURATION));
+        p.setProperty("freeze_cooldown_sec",       String.valueOf(FREEZE_COOLDOWN));
+        p.setProperty("freeze_weapon_ttl_sec",     String.valueOf(FREEZE_WEAPON_TTL));
+        p.setProperty("freeze_penalty_points",     String.valueOf(FREEZE_PENALTY));
+        p.setProperty("energy_item_points",        String.valueOf(ENERGY_ITEM_POINTS));
+        p.setProperty("item_max_active",           String.valueOf(MAX_ITEMS));
+        p.setProperty("item_spawn_interval_ticks", String.valueOf(ITEM_SPAWN_INTERVAL_TICKS));
+        p.setProperty("zone_count",                String.valueOf(ZONE_COUNT));
+        return p;
+    }
+
+    // -------------------------------------------------------------------------
     // Round reset — keeps connected players, resets everything else
     // -------------------------------------------------------------------------
 
     /**
      * Resets the round without disconnecting anyone.
-     * Called by the RESET console command in Server.java.
      * Player scores, positions, and power states are cleared; zones and items
-     * are re-initialised; the timer restarts from ROUND_DURATION.
+     * are re-initialised with current config; the timer restarts from ROUND_DURATION.
      */
     public synchronized void resetRound() {
         timeLeftSec = ROUND_DURATION;
         gameOver    = false;
         tickCount   = 0;
 
-        // Reset all zones to unclaimed
-        for (Zone z : zones) {
-            z.ownerId           = -1;
-            z.contested         = false;
-            z.captureProgress   = 0;
-            z.capturingPlayerId = -1;
-        }
+        // Re-initialise zones so zone count / layout changes take effect
+        initZones();
 
         // Clear timers and queued actions
         graceTimers.clear();
@@ -558,20 +608,52 @@ public class GameState {
     // Helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * Places ZONE_COUNT zones at randomized positions using a grid layout.
+     *
+     * The playable area is divided into a cols×rows grid; each zone is assigned one
+     * cell and placed at a random position within it.  This guarantees:
+     *   - No overlapping zones
+     *   - Even coverage of the map regardless of ZONE_COUNT
+     *   - A different layout every round
+     */
     private void initZones() {
         zones.clear();
-        int margin = 60, zw = 160, zh = 120;
-        // Always place 4 corner zones first, then any extras along the center
-        zones.add(new Zone(1, new Rectangle(margin,                      margin,                       zw, zh)));
-        zones.add(new Zone(2, new Rectangle(MAP_WIDTH  - margin - zw,    margin,                       zw, zh)));
-        zones.add(new Zone(3, new Rectangle(margin,                      MAP_HEIGHT - margin - zh,     zw, zh)));
-        zones.add(new Zone(4, new Rectangle(MAP_WIDTH  - margin - zw,    MAP_HEIGHT - margin - zh,     zw, zh)));
+        final int ZW     = 145;   // zone width
+        final int ZH     = 105;   // zone height
+        final int MARGIN = 50;    // distance from map edges
+        final int PAD    = 12;    // minimum gap between zone and cell boundary
 
-        for (int i = 5; i <= ZONE_COUNT; i++) {
-            // Extra zones placed along the horizontal center
-            int cx = (int) ((i - 4) * (MAP_WIDTH / (ZONE_COUNT - 3.0)));
-            int cy = MAP_HEIGHT / 2 - zh / 2;
-            zones.add(new Zone(i, new Rectangle(clampI(cx - zw / 2, 0, MAP_WIDTH - zw), cy, zw, zh)));
+        // Playable area starts below the HUD
+        int areaX = MARGIN;
+        int areaY = HUD_HEIGHT + MARGIN;
+        int areaW = MAP_WIDTH  - 2 * MARGIN;
+        int areaH = MAP_HEIGHT - HUD_HEIGHT - 2 * MARGIN;
+
+        // Grid dimensions: favour wider grids so zones spread horizontally
+        int cols = (int) Math.ceil(Math.sqrt(ZONE_COUNT));
+        int rows = (int) Math.ceil((double) ZONE_COUNT / cols);
+
+        int cellW = areaW / cols;
+        int cellH = areaH / rows;
+
+        int id = 1;
+        outer:
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                if (id > ZONE_COUNT) break outer;
+
+                // Random top-left corner inside this cell, keeping the zone fully within bounds
+                int minX = areaX + c * cellW + PAD;
+                int maxX = areaX + c * cellW + cellW - ZW - PAD;
+                int minY = areaY + r * cellH + PAD;
+                int maxY = areaY + r * cellH + cellH - ZH - PAD;
+
+                int x = (maxX > minX) ? minX + rng.nextInt(maxX - minX) : minX;
+                int y = (maxY > minY) ? minY + rng.nextInt(maxY - minY) : minY;
+
+                zones.add(new Zone(id++, new Rectangle(x, y, ZW, ZH)));
+            }
         }
     }
 
@@ -616,9 +698,4 @@ public class GameState {
         return Math.max(lo, Math.min(hi, v));
     }
 
-    static void logError(String context, Exception e) {
-        try (FileWriter fw = new FileWriter("error.log", true)) {
-            fw.write("[" + new Date() + "] " + context + ": " + e.getMessage() + "\n");
-        } catch (IOException ignored) {}
-    }
 }
