@@ -18,6 +18,8 @@ class NetworkGameModel {
     volatile double  timeLeftSec = 0;
     volatile boolean gameOver    = false;
     volatile String  winnerLine  = "";
+    volatile boolean killed      = false;
+    volatile String killedLine = "";
 
     // Set to true for one frame when the server resets the round mid-session.
     // NetworkGamePanel reads and clears this to re-sync the local player position.
@@ -219,6 +221,13 @@ class NetworkGameModel {
                 winnerLine = info[1] + " wins with " + info[2] + " pts!";
             }
         }
+    }
+
+    synchronized void applyKilledMessage(String msg) {
+        killed = true;
+        //String[] parts = msg.split("\\|");
+        killedLine = "You were removed from the game by the server.";
+        
     }
 
     // -------------------------------------------------------------------------

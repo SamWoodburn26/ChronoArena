@@ -85,6 +85,7 @@ public class ChronoArenaClientUI {
 
         client.setStateCallback(model::applyStateMessage);
         client.setGameOverCallback(model::applyGameOverMessage);
+        client.setKilledCallback(model::applyKilledMessage);
 
         // ---- Open game window on the EDT ----
         final Client     finalClient = client;

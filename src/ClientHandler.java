@@ -16,6 +16,7 @@ public class ClientHandler implements Runnable {
     private DataOutputStream dataOutputStream;
     private String playerName;
     public  int    playerId = -1;
+    private volatile boolean killed = false;  // set to true if the server kills this client, so the UI can show a message on next state update
 
     // Guards against closeEverything() being called more than once from concurrent threads
     private volatile boolean closed = false;
@@ -122,10 +123,14 @@ public class ClientHandler implements Runnable {
      */
     public void killClient(String reason) {
         sendDirect("KILLED|" + reason);
+        killed = true;
         System.out.println("Player " + playerId + " was killed by server: " + reason);
         closeEverything();
     }
 
+    public boolean isKilled() {
+        return killed;
+    }
     private void removeClientHandler() {
         if (clientHandlers.remove(this) && playerId != -1) {
             GameState.INSTANCE.removePlayer(playerId);

@@ -34,6 +34,7 @@ public class Client {
     private Consumer<String> stateCallback       = null;
     private Consumer<String> gameOverCallback    = null;
     private Consumer<String> freezeEventCallback = null;
+    private Consumer<String> killedCallback = null;
 
     public Client(Socket socket, DatagramSocket udpSocket, String playerName,
                   InetAddress serverAddress, int udpPort) {
@@ -66,6 +67,9 @@ public class Client {
 
     /** Called when the server confirms a freeze ray fired by any player. */
     public void setFreezeEventCallback(Consumer<String> cb) { this.freezeEventCallback = cb; }
+
+    /** Called when server kills the client */
+    public void setKilledCallback(Consumer<String> cb) { this.killedCallback = cb;}
 
     // -------------------------------------------------------------------------
     // Join handshake (TCP, synchronous)
@@ -144,6 +148,7 @@ public class Client {
         } else if (msg.startsWith("KILLED|")) {
             System.out.println("[DEBUG] Received KILLED: " + msg);
             System.out.println("You were removed from the game by the server.");
+            if (killedCallback != null) killedCallback.accept(msg);
             closeEverything();
 
         } else if (msg.startsWith("SERVER:")) {

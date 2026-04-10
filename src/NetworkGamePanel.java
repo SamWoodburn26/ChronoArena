@@ -252,6 +252,7 @@ class NetworkGamePanel extends JPanel {
         drawHUD(g2);
 
         if (model.gameOver) drawGameOver(g2);
+        if (model.killed) drawKilled(g2);
     }
 
     // --- Background ---
@@ -656,5 +657,42 @@ class NetworkGamePanel extends JPanel {
 
     private static double clamp(double v, double lo, double hi) {
         return Math.max(lo, Math.min(hi, v));
+    }
+
+    private void drawKilled(Graphics2D g2) {
+        // Heavy black scanline overlay
+        g2.setColor(new Color(0, 0, 0, 200));
+        g2.fillRect(0, 0, getWidth(), getHeight());
+
+        int cx = getWidth() / 2, cy = getHeight() / 2;
+
+        // Bordered panel
+        int pw = 480, ph = 160;
+        int px = cx - pw / 2, py = cy - ph / 2;
+        g2.setColor(Color.BLACK);
+        g2.fillRect(px, py, pw, ph);
+        g2.setColor(RED_ACCENT);
+        g2.setStroke(new BasicStroke(2f));
+        g2.drawRect(px, py, pw, ph);
+        // Corner brackets on the panel
+        int bk = 12;
+        g2.setStroke(new BasicStroke(2f));
+        g2.drawLine(px,      py,      px + bk, py);       g2.drawLine(px, py, px, py + bk);
+        g2.drawLine(px + pw, py,      px + pw - bk, py);  g2.drawLine(px + pw, py, px + pw, py + bk);
+        g2.drawLine(px,      py + ph, px + bk, py + ph);  g2.drawLine(px, py + ph, px, py + ph - bk);
+        g2.drawLine(px + pw, py + ph, px + pw - bk, py + ph); g2.drawLine(px + pw, py + ph, px + pw, py + ph - bk);
+
+        g2.setFont(new Font(Font.MONOSPACED, Font.BOLD, 42));
+        g2.setColor(RED_ACCENT);
+        FontMetrics fm = g2.getFontMetrics();
+        String heading = "// CONNECTION KILLED //";
+        g2.drawString(heading, cx - fm.stringWidth(heading) / 2, cy - 14);
+
+        // Instruction
+        g2.setFont(fontMicro);
+        g2.setColor(DIM_RED);
+        String sub = "PRESS ESC / Q TO DISCONNECT";
+        fm = g2.getFontMetrics();
+        g2.drawString(sub, cx - fm.stringWidth(sub) / 2, cy + 48);
     }
 }
